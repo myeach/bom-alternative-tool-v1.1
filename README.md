@@ -45,16 +45,21 @@ NEXAR_CLIENT_SECRET=your_nexar_client_secret
 
 ## 使用说明
 
+### 激活虚拟环境
+```bash
+.\.venv\Scripts\activate
+```
+
 ### 启动应用
 
 ```bash
-streamlit run frontend.py
+python -m streamlit run run.py
 ```
 
 或者指定端口运行：
 
 ```bash
-streamlit run frontend.py --server.port 50485
+python -m streamlit run run.py --server.port 50485
 ```
 
 ### 功能使用
@@ -133,6 +138,32 @@ git config --global --unset https.proxy
 git config --global http.proxy http://127.0.0.1:正确端口号
 git config --global https.proxy https://127.0.0.1:正确端口号
 ```
+
+或者尝试SSH密钥方法：
+
+```bash
+#  SSH密钥生成：
+ssh-keygen -t ed25519 -C "your@gmail.com"
+```
+
+直接回车跳过，生成结果：
+Your identification has been saved in …
+Your public key has been saved in …
+
+```bash
+# 添加公钥到github：
+cat ~/.ssh/id_ed25519.pub
+```
+复制生成的内容
+然后在GitHub界面，打开文件，右上角setting——deploy keys——add deploy keys，在key栏粘贴刚才复制的内容
+
+```bash
+# 测试连接：
+ssh -T git@github.com
+```
+
+成功时会显示：
+Hi username! You've successfully authenticated...
 
 ## 项目结构
 

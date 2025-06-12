@@ -48,10 +48,7 @@ NEXAR_CLIENT_SECRET = os.getenv("NEXAR_CLIENT_SECRET")
 if not NEXAR_CLIENT_ID or not NEXAR_CLIENT_SECRET:
     raise ValueError("错误：未找到 NEXAR_CLIENT_ID 或 NEXAR_CLIENT_SECRET 环境变量。")
 nexar_client = NexarClient(NEXAR_CLIENT_ID, NEXAR_CLIENT_SECRET)
-print("所有环境变量:", os.environ)
-print(f"DEEPSEEK_API_KEY: {DEEPSEEK_API_KEY}")
-print(f"NEXAR_CLIENT_ID: {NEXAR_CLIENT_ID}")
-print(f"NEXAR_CLIENT_SECRET: {NEXAR_CLIENT_SECRET}")
+
 
 # GraphQL 查询
 QUERY_ALTERNATIVE_PARTS = '''
@@ -100,9 +97,7 @@ query findAlternativeParts($q: String!, $limit: Int = 10) {
 def get_nexar_alternatives(mpn: str, limit: int = 10):
     variables = {"q": mpn, "limit": limit}
     try:
-        print(f"调用 Nexar API，参数: {variables}")  # 添加调试信息
         data = nexar_client.get_query(QUERY_ALTERNATIVE_PARTS, variables)
-        print(f"Nexar API 返回数据: {data}")  # 添加调试信息
         alternative_parts = []
         
         # 添加数据有效性检查与调试信息
