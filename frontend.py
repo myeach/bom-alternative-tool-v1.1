@@ -407,6 +407,53 @@ def render_ui(get_alternative_parts_func):
         [data-testid="stSidebar"] button:hover {
             background-color: #e0e9fa;
         }
+                
+        /* 新增：移除搜索区域的多余间距 */
+        .search-area {
+            margin-bottom: 0 !important;  /* 移除底部外边距 */
+            padding: 0 !important;  /* 减少内边距 */
+        }
+        
+        /* 调整容器内元素的间距 */
+        .search-container {
+            gap: 0 !important;  /* 减少输入框和按钮的间距 */
+        }
+          /* 消除容器和列的默认间距 */
+        [data-testid="stContainer"] {
+            padding: 0 !important;       /* 容器无内边距 */
+            margin: 0 !important;        /* 容器无边距 */
+        }
+        
+        div[data-testid="column"] {
+            padding: 0 !important;       /* 列无内边距 */
+            margin: 0 !important;        /* 列无边距 */
+        }
+        /* 输入框和按钮的最终调整 */
+        .search-input input, .search-button button {
+            margin: 0 !important;        /* 元素自身无边距 */
+            padding: 10px !important;    /* 保持输入框内填充，确保可点击区域 */
+        }
+        div[data-testid="stTextInput"] > div {
+            border: none !important;  
+            box-shadow: none !important;  
+            outline: none !important;  
+        }
+        div[data-testid="stTextInput"] input {
+            border: none !important;
+            box-shadow: none !important;
+        }
+        .search-area,
+        .search-container,
+        [data-testid="stContainer"],
+        div[data-testid="column"] {
+            border: none !important;
+            box-shadow: none !important;
+            border-bottom: none !important;  
+        }
+        hr,
+        div[role="separator"] {
+            display: none !important;
+        }
     </style>
     """, unsafe_allow_html=True)
 
