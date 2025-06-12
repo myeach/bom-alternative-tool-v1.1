@@ -62,6 +62,20 @@ python -m streamlit run run.py
 python -m streamlit run run.py --server.port 50485
 ```
 
+### 生成网址
+
+```bash
+python -m streamlit run frontend.py
+```
+
+右上角Deploy——Deploy now
+```bash
+Repository ：改为自己GitHub文件的位置
+Main file path：改为 run.py
+```
+Deploy
+部署成功后，复制网址
+
 ### 功能使用
 
 1. **单个元器件查询**：在"元器件替代查询"标签页输入元器件型号，点击"查询替代方案"
