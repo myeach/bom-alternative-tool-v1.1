@@ -50,7 +50,7 @@ NEXAR_CLIENT_SECRET=your_nexar_client_secret
 .\.venv\Scripts\activate
 ```
 
-### 启动应用
+### 启动应用、调试
 
 ```bash
 python -m streamlit run run.py

@@ -1439,3 +1439,101 @@ def format_response(text):
     for k,v in replacements.items():
         text = text.replace(k, v)
     return text
+
+def identify_component(mpn):
+    """识别输入型号对应的元器件信息，增加多重验证"""
+    
+    # 基本格式验证
+    import re
+    
+    # 检查是否为纯数字或太短的输入
+    if mpn.isdigit() or len(mpn) < 3:
+        return {}
+    
+    # 常见元器件型号模式
+    valid_patterns = [
+        r'^[A-Za-z0-9\-_]+$',
+        r'^[A-Za-z]+[0-9]+.*$',
+        r'^[0-9]+[A-Za-z]+.*$',
+    ]
+    
+    # 检查是否匹配任何有效模式
+    is_valid = any(re.match(pattern, mpn) for pattern in valid_patterns)
+    if not is_valid:
+        return {}
+    
+    # 调用API获取元器件信息
+    variables = {"q": mpn, "limit": 1}
+    try:
+        data = nexar_client.get_query(QUERY_ALTERNATIVE_PARTS, variables)
+        
+        if not data:
+            return {}
+        
+        sup_search = data.get("supSearchMpn", {})
+        results = sup_search.get("results", [])
+        
+        if not results:
+            return {}
+        
+        part = results[0].get("part", {})
+        
+        # 检查关键信息是否存在
+        required_fields = ["mpn", "manufacturer", "specs"]
+        if not all(part.get(field) for field in required_fields):
+            return {}
+        
+        # 提取元器件信息
+        component_info = {
+            "mpn": part.get("mpn", "未知型号"),
+            "manufacturer": part.get("manufacturer", {}).get("name", "未知制造商"),
+            "parameters": {},
+            "price": "未知",
+            "status": "未知",
+            "leadTime": "未知"
+        }
+        
+        # 提取参数信息
+        specs = part.get("specs", [])
+        for spec in specs:
+            attribute = spec.get("attribute", {})
+            name = attribute.get("name", "未知参数")
+            value = spec.get("value", "未知值")
+            component_info["parameters"][name] = value
+        # 提取价格信息
+        price_info = part.get("medianPrice1000", {})
+        price_value = price_info.get("price")
+        currency = price_info.get("currency", "USD")
+        if price_value:
+            component_info["price"] = f"{price_value:.4f} {currency}"
+        
+        # 提取生命周期和库存状态
+        life_cycle = part.get("lifeCycle", "未知")
+        obsolete = part.get("obsolete", False)
+        lead_days = part.get("estimatedFactoryLeadDays")
+        
+        if obsolete:
+            component_info["status"] = "已停产"
+        elif life_cycle:
+            if "OBSOLETE" in life_cycle or "END OF LIFE" in life_cycle.upper():
+                component_info["status"] = "已停产"
+            elif "ACTIVE" in life_cycle.upper() or "PRODUCTION" in life_cycle.upper():
+                component_info["status"] = "量产中"
+            elif "NEW" in life_cycle.upper() or "INTRO" in life_cycle.upper():
+                component_info["status"] = "新产品"
+            elif "NOT RECOMMENDED" in life_cycle.upper():
+                component_info["status"] = "不推荐使用"
+            else:
+                component_info["status"] = life_cycle
+        
+        if lead_days:
+            component_info["leadTime"] = f"{lead_days} 天"
+        
+        return component_info
+    
+    except Exception as e:
+        st.error(f"Nexar API 查询失败: {e}")
+        import traceback
+        with st.sidebar.expander("Nexar API错误详情", expanded=False):
+            st.code(traceback.format_exc())
+        return {}

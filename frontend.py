@@ -4,6 +4,7 @@ import time
 import pandas as pd
 import tempfile  # 用于创建临时文件，支持文件下载功能
 from custom_components.hide_sidebar_items import get_sidebar_hide_code
+from backend import identify_component
 
 def render_ui(get_alternative_parts_func):
     # Streamlit 界面 - 确保 set_page_config 是第一个Streamlit命令
@@ -525,9 +526,43 @@ def render_ui(get_alternative_parts_func):
                 
             if not part_number:
                 st.error("⚠️ 请输入元器件型号！")
+                st.stop()  # 中止当前页面的执行，停止后续搜索流程
             else:
+                component_info = identify_component(part_number)
+                if not component_info:
+                    st.subheader(f"未识别为元器件，请检查输入并提供更详细的信息")
+                    st.stop()  # 中止当前页面的执行，停止后续搜索流程
                 with st.spinner(f"🔄 正在查询 {part_number} 的国产替代方案..."):
                     # 调用后端函数获取替代方案
+                    if component_info:
+                        # 使用卡片组件包裹信息
+                        with st.container():
+                            st.subheader(f"元器件信息：{component_info['mpn']}")
+                            
+                            # 使用标签页来分隔不同类别的信息
+                            info_tab1, info_tab2 = st.tabs(["基本信息", "参数详情"])
+                            
+                            with info_tab1:
+                                col1, col2 = st.columns(2)
+                                
+                                with col1:
+                                    st.markdown(f"**制造商：** {component_info['manufacturer']}")
+                                    st.markdown(f"**价格：** {component_info['price']}")
+                                    
+                                with col2:
+                                    st.markdown(f"**状态：** {component_info['status']}")
+                                    st.markdown(f"**供货周期：** {component_info['leadTime']}")
+                            
+                            with info_tab2:
+                                # 使用容器来展示所有参数
+                                with st.container():
+                                    param_items = []
+                                    for param, value in component_info["parameters"].items():
+                                        # 过滤非参数内容，比如包含表情、中文引导语等（可根据实际特征调整判断条件）
+                                        if not any(char in param or char in value for char in ["🤖", "您好", "帮您", "输入", "常见问题"]):
+                                            param_items.append(f"**{param}**：{value}")
+                                    # 用逗号拼接参数，横向紧凑显示
+                                    st.markdown("**参数详情：** " + "   ".join(param_items))
                     recommendations = get_alternative_parts_func(part_number)
                     
                     # 保存到历史记录
