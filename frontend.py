@@ -55,7 +55,34 @@ def render_ui(get_alternative_parts_func):
     def handle_enter_press():
         if st.session_state.part_number_input:  # 检查输入框是否有内容
             st.session_state.search_triggered = True
-    
+
+    # 侧边栏核心内容（前置渲染，确保始终可见）
+    with st.sidebar:
+        st.title("历史查询记录")
+        if 'search_history' not in st.session_state:
+            st.session_state.search_history = []
+        
+        if len(st.session_state.search_history) > 0:
+            if st.button("清除历史记录", key="clear_history"):
+                st.session_state.search_history = []
+        
+        if not st.session_state.search_history:
+            st.info("暂无历史查询记录")
+        else:
+            for idx, history_item in enumerate(reversed(st.session_state.search_history)):
+                query_type = "批量查询" if history_item.get('type') == 'batch' else "单元器件查询"
+                with st.container():
+                    st.markdown(f"""
+                    <div style="padding: 10px; border-radius: 5px; margin-bottom: 10px; border: 1px solid #e6e6e6; background-color: #f9f9f9;">
+                        <div style="font-weight: bold;">{history_item['part_number']}</div>
+                        <div style="font-size: 0.8em; color: #666;">({query_type}) {history_item['timestamp']}</div>
+                        <div style="margin-top: 5px; font-size: 0.9em;">
+                            {"批量查询多个元器件" if history_item.get('type') == 'batch' 
+                             else f"找到 {len(history_item.get('recommendations', []))} 种替代方案"}
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
     # 更新CSS样式，精简和优化AI对话部分的样式
     st.markdown("""
     <style>
@@ -520,62 +547,109 @@ def render_ui(get_alternative_parts_func):
             st.markdown('</div>', unsafe_allow_html=True)
 
         # 单个查询按钮逻辑 - 增加对回车键检测的条件
+        query_error = False
         if search_button or st.session_state.search_triggered:
             if st.session_state.search_triggered:  # 重置状态
                 st.session_state.search_triggered = False
                 
             if not part_number:
                 st.error("⚠️ 请输入元器件型号！")
-                st.stop()  # 中止当前页面的执行，停止后续搜索流程
+                query_error = True # 中止当前页面的执行，停止后续搜索流程
             else:
                 component_info = identify_component(part_number)
                 if not component_info:
                     st.subheader(f"未识别为元器件，请检查输入并提供更详细的信息")
-                    st.stop()  # 中止当前页面的执行，停止后续搜索流程
-                with st.spinner(f"🔄 正在查询 {part_number} 的国产替代方案..."):
-                    # 调用后端函数获取替代方案
-                    if component_info:
-                        # 使用卡片组件包裹信息
-                        with st.container():
-                            st.subheader(f"元器件信息：{component_info['mpn']}")
-                            
-                            # 使用标签页来分隔不同类别的信息
-                            info_tab1, info_tab2 = st.tabs(["基本信息", "参数详情"])
-                            
-                            with info_tab1:
-                                col1, col2 = st.columns(2)
-                                
+                    query_error = True  # 中止当前页面的执行，停止后续搜索流程
+            if query_error:
+            # 使用容器展示错误信息，不中断页面
+                with st.container():
+                    st.info("""
+                    🔍 可能的原因：
+                    - 输入型号格式错误（如纯数字或过短）
+                    - 数据库中无匹配记录
+                    - 请尝试添加封装、参数等更多信息
+                    """)
+                return  # 跳过后续查询逻辑，但保留页面渲染
+            
+        if not query_error and part_number:
+            with st.spinner(f"🔄 正在查询 {part_number} 的国产替代方案..."):
+                # 调用后端函数获取替代方案
+                if component_info:
+                    # 使用卡片组件包裹信息
+                    with st.expander(f"📱 **{component_info['mpn']}** 元器件详情", expanded=True):
+                        # 添加顶部信息栏
+                        col1, col2, col3 = st.columns([3, 1, 1])
+                        with col1:
+                            st.markdown(f"### {component_info['manufacturer']} {component_info['mpn']}")
+                            st.caption(component_info.get('description', '电子元器件'))
+                        with col2:
+                            status_color = "🟢" if component_info['status'] == "量产中" else "🟡" if component_info['status'] == "样品" else "🔴"
+                            st.metric("状态", f"{status_color} {component_info['status']}")
+                        with col3:
+                            st.metric("供货周期", component_info['leadTime'])
+                        
+                        # 添加分隔线
+                        st.markdown("---")
+                        
+                        # 使用标签页来分隔不同类别的信息，增加标签页样式
+                        info_tab1, info_tab2 = st.tabs([
+                            "📊 基本信息", 
+                            "⚙️ 参数详情",
+                        ])
+                        
+                        with info_tab1:
+                            # 基本信息卡片
+                            with st.container():
+                                col1, col2, col3 = st.columns(3)
                                 with col1:
-                                    st.markdown(f"**制造商：** {component_info['manufacturer']}")
                                     st.markdown(f"**价格：** {component_info['price']}")
-                                    
+                                    st.markdown(f"**封装：** {component_info.get('package', '未知')}")
+                                    st.markdown(f"**类别：** {component_info.get('category', '未知')}")
                                 with col2:
-                                    st.markdown(f"**状态：** {component_info['status']}")
-                                    st.markdown(f"**供货周期：** {component_info['leadTime']}")
+                                    st.markdown(f"**品牌：** {component_info['manufacturer']}")
+                                    st.markdown(f"**型号：** {component_info['mpn']}")
+                                    st.markdown(f"**库存：** {component_info.get('stock', '未知')}")
+                                with col3:
+                                    st.markdown(f"**最小包装：** {component_info.get('min_order', '未知')}")
+                                    st.markdown(f"**RoHS：** {component_info.get('rohs', '未知')}")
+                                    st.markdown(f"**生命周期：** {component_info.get('lifetime', '未知')}")
                             
-                            with info_tab2:
-                                # 使用容器来展示所有参数
-                                with st.container():
-                                    param_items = []
-                                    for param, value in component_info["parameters"].items():
-                                        # 过滤非参数内容，比如包含表情、中文引导语等（可根据实际特征调整判断条件）
-                                        if not any(char in param or char in value for char in ["🤖", "您好", "帮您", "输入", "常见问题"]):
-                                            param_items.append(f"**{param}**：{value}")
-                                    # 用逗号拼接参数，横向紧凑显示
-                                    st.markdown("**参数详情：** " + "   ".join(param_items))
-                    recommendations = get_alternative_parts_func(part_number)
-                    
-                    # 保存到历史记录
-                    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    st.session_state.search_history.append({
-                        "timestamp": timestamp,
-                        "part_number": part_number,
-                        "recommendations": recommendations,
-                        "type": "single"
-                    })
-                    
-                    # 显示结果
-                    display_search_results(part_number, recommendations)
+                            # 添加图片展示区域
+                            if 'image' in component_info and component_info['image']:
+                                st.image(component_info['image'], caption=f"{component_info['mpn']} 外观图", width=200)
+                        
+                        with info_tab2:
+                            # 参数详情区域，使用表格展示更清晰
+                            if component_info["parameters"]:
+                                # 创建参数表格
+                                param_data = []
+                                for param, value in component_info["parameters"].items():
+                                    # 过滤非参数内容
+                                    if not any(char in param or char in value for char in ["🤖", "您好", "帮您", "输入", "常见问题"]):
+                                        param_data.append({"参数名称": param, "参数值": value})
+                                
+                                if param_data:
+                                    # 使用DataFrame展示参数
+                                    param_df = pd.DataFrame(param_data)
+                                    st.dataframe(param_df, use_container_width=True)
+                                else:
+                                    st.info("没有找到详细参数信息")
+                            else:
+                                st.info("没有找到详细参数信息")
+                        
+            recommendations = get_alternative_parts_func(part_number)
+            
+            # 保存到历史记录
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            st.session_state.search_history.append({
+                "timestamp": timestamp,
+                "part_number": part_number,
+                "recommendations": recommendations,
+                "type": "single"
+            })
+            
+            # 显示结果
+            display_search_results(part_number, recommendations)
     
     with tab2:
         # 聊天界面容器
