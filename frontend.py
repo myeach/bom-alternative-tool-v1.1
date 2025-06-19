@@ -6,6 +6,9 @@ import tempfile  # 用于创建临时文件，支持文件下载功能
 from custom_components.hide_sidebar_items import get_sidebar_hide_code
 from backend import identify_component
 
+# 不显示报错信息到前端
+st.set_option('client.showErrorDetails', False)
+
 def render_ui(get_alternative_parts_func):
     # Streamlit 界面 - 确保 set_page_config 是第一个Streamlit命令
     st.set_page_config(page_title="BOM 元器件国产替代推荐工具", layout="wide")
@@ -63,7 +66,7 @@ def render_ui(get_alternative_parts_func):
             st.session_state.search_history = []
         
         if len(st.session_state.search_history) > 0:
-            if st.button("清除历史记录", key="clear_history"):
+            if st.button("清除历史记录", key="clear_history_tab1"):
                 st.session_state.search_history = []
         
         if not st.session_state.search_history:
@@ -547,21 +550,27 @@ def render_ui(get_alternative_parts_func):
             st.markdown('</div>', unsafe_allow_html=True)
 
         # 单个查询按钮逻辑 - 增加对回车键检测的条件
+        
         query_error = False
+        skip_tab1_query = False  # 新增标记变量
+        component_info = identify_component(part_number)
         if search_button or st.session_state.search_triggered:
             if st.session_state.search_triggered:  # 重置状态
                 st.session_state.search_triggered = False
                 
             if not part_number:
                 st.error("⚠️ 请输入元器件型号！")
-                query_error = True # 中止当前页面的执行，停止后续搜索流程
+                query_error = True
+                skip_tab1_query = True  # 标记跳过tab1查询
             else:
-                component_info = identify_component(part_number)
+                
                 if not component_info:
                     st.subheader(f"未识别为元器件，请检查输入并提供更详细的信息")
-                    query_error = True  # 中止当前页面的执行，停止后续搜索流程
+                    query_error = True
+                    skip_tab1_query = True  # 标记跳过tab1查询
+                    
             if query_error:
-            # 使用容器展示错误信息，不中断页面
+                # 使用容器展示错误信息，不中断页面
                 with st.container():
                     st.info("""
                     🔍 可能的原因：
@@ -569,87 +578,129 @@ def render_ui(get_alternative_parts_func):
                     - 数据库中无匹配记录
                     - 请尝试添加封装、参数等更多信息
                     """)
-                return  # 跳过后续查询逻辑，但保留页面渲染
-            
-        if not query_error and part_number:
-            with st.spinner(f"🔄 正在查询 {part_number} 的国产替代方案..."):
-                # 调用后端函数获取替代方案
-                if component_info:
-                    # 使用卡片组件包裹信息
-                    with st.expander(f"📱 **{component_info['mpn']}** 元器件详情", expanded=True):
-                        # 添加顶部信息栏
-                        col1, col2, col3 = st.columns([3, 1, 1])
-                        with col1:
-                            st.markdown(f"### {component_info['manufacturer']} {component_info['mpn']}")
-                            st.caption(component_info.get('description', '电子元器件'))
-                        with col2:
-                            status_color = "🟢" if component_info['status'] == "量产中" else "🟡" if component_info['status'] == "样品" else "🔴"
-                            st.metric("状态", f"{status_color} {component_info['status']}")
-                        with col3:
-                            st.metric("供货周期", component_info['leadTime'])
-                        
-                        # 添加分隔线
-                        st.markdown("---")
-                        
-                        # 使用标签页来分隔不同类别的信息，增加标签页样式
-                        info_tab1, info_tab2 = st.tabs([
-                            "📊 基本信息", 
-                            "⚙️ 参数详情",
-                        ])
-                        
-                        with info_tab1:
-                            # 基本信息卡片
-                            with st.container():
-                                col1, col2, col3 = st.columns(3)
-                                with col1:
-                                    st.markdown(f"**价格：** {component_info['price']}")
-                                    st.markdown(f"**封装：** {component_info.get('package', '未知')}")
-                                    st.markdown(f"**类别：** {component_info.get('category', '未知')}")
-                                with col2:
-                                    st.markdown(f"**品牌：** {component_info['manufacturer']}")
-                                    st.markdown(f"**型号：** {component_info['mpn']}")
-                                    st.markdown(f"**库存：** {component_info.get('stock', '未知')}")
-                                with col3:
-                                    st.markdown(f"**最小包装：** {component_info.get('min_order', '未知')}")
-                                    st.markdown(f"**RoHS：** {component_info.get('rohs', '未知')}")
-                                    st.markdown(f"**生命周期：** {component_info.get('lifetime', '未知')}")
+                # return  # 删除原return语句，改用标记变量
+
+            # 在tab1查询逻辑中使用标记变量控制执行
+            if not skip_tab1_query:
+                # 原tab1的查询逻辑代码...
+                # 例如：
+                with st.spinner(f"🔄 检查输入中......"):
+                    # 调用后端函数获取替代方案
+                    if component_info:
+                        # 使用卡片组件包裹信息
+                        # 增大字体的 CSS 样式
+                        expander_style = """
+                        <style>
+                            /* 针对expander标题的强优先级选择器 */
+                            div[data-testid="stExpander"] > div > button > div > div {
+                                font-size: 40px !important;  
+                                font-weight: 600 !important;
+                            }
                             
-                            # 添加图片展示区域
-                            if 'image' in component_info and component_info['image']:
-                                st.image(component_info['image'], caption=f"{component_info['mpn']} 外观图", width=200)
+                            /* 针对expander内容的强优先级选择器 */
+                            div[data-testid="stExpanderContent"] {
+                                font-size: 40px !important;  
+                                /* 关键：减少行间距 */
+                                line-height: 1.2 !important;  /* 缩小行高（默认~1.6） */
+                                margin-bottom: 0 !important;  /* 去掉内容底部空白 */
+                                padding-bottom: 0 !important; /* 去掉内边距 */
+                            }
+                            
+                            /* 单独调整 markdown 段落间距 */
+                            div[data-testid="stExpanderContent"] p {
+                                margin: 0.3rem 0 !important; /* 缩小段落上下间距 */
+                            }
+                            
+                            /* 调整 caption 间距（如果需要） */
+                            .stCaption {
+                                margin-top: 0 !important; /* 去掉与标题的间距 */
+                                margin-bottom: 0.5rem !important; /* 自定义下方间距 */
+                            }
+                        </style>
+                        """
                         
-                        with info_tab2:
-                            # 参数详情区域，使用表格展示更清晰
-                            if component_info["parameters"]:
-                                # 创建参数表格
-                                param_data = []
-                                for param, value in component_info["parameters"].items():
-                                    # 过滤非参数内容
-                                    if not any(char in param or char in value for char in ["🤖", "您好", "帮您", "输入", "常见问题"]):
-                                        param_data.append({"参数名称": param, "参数值": value})
+                        with st.expander(f"📱 **{component_info['mpn']}** 元器件详情", expanded=False):
+                            # 添加顶部信息栏
+                           # 添加顶部信息栏
+                            cols = st.columns(1)  # 创建1列（返回包含1个列的列表）
+
+                            with cols[0]:  # 使用列表索引访问第一列
+                                st.markdown(
+                                    f"<h2 style='margin-bottom: 0.2rem; font-size: 24px; font-weight: 600;'>{component_info['manufacturer']} {component_info['mpn']}</h2>",
+                                    unsafe_allow_html=True
+                                )
+                                # 【修改2】缩小 caption 间距（配合上面的 margin-bottom）
+                                st.caption(
+                                    component_info.get('description', '电子元器件'),
+                                    unsafe_allow_html=True
+                                )
+                                # 加 CSS 强制缩小题注间距（如果还不够）
+                                st.markdown(
+                                    "<style>.stCaption { margin-top: 0 !important; }</style>",
+                                    unsafe_allow_html=True
+                                )
+                            # 添加分隔线
+                            st.markdown("---")
+                            
+                            # 使用标签页来分隔不同类别的信息，增加标签页样式
+                            info_tab1, info_tab2 = st.tabs([
+                                "📊 基本信息", 
+                                "⚙️ 参数详情",
+                            ])
+                            
+                            with info_tab1:
+                                # 基本信息卡片
+                                with st.container():
+                                    col1, col2, col3 = st.columns(3)
+                                    with col1:
+                                        st.markdown(f"**价格：** {component_info['price']}")
+                                        st.markdown(f"**封装：** {component_info.get('package', '未知')}")
+                                        st.markdown(f"**类别：** {component_info.get('category', '未知')}")
+                                    with col2:
+                                        st.markdown(f"**品牌：** {component_info['manufacturer']}")
+                                        st.markdown(f"**型号：** {component_info['mpn']}")
+                                        st.markdown(f"**库存：** {component_info.get('stock', '未知')}")
+                                    with col3:
+                                        st.markdown(f"**最小包装：** {component_info.get('min_order', '未知')}")
+                                        st.markdown(f"**RoHS：** {component_info.get('rohs', '未知')}")
+                                        st.markdown(f"**生命周期：** {component_info.get('lifetime', '未知')}")
                                 
-                                if param_data:
-                                    # 使用DataFrame展示参数
-                                    param_df = pd.DataFrame(param_data)
-                                    st.dataframe(param_df, use_container_width=True)
+                                # 添加图片展示区域
+                                if 'image' in component_info and component_info['image']:
+                                    st.image(component_info['image'], caption=f"{component_info['mpn']} 外观图", width=200)
+                            
+                            with info_tab2:
+                                # 参数详情区域，使用表格展示更清晰
+                                if component_info["parameters"]:
+                                    # 创建参数表格
+                                    param_data = []
+                                    for param, value in component_info["parameters"].items():
+                                        # 过滤非参数内容
+                                        if not any(char in param or char in value for char in ["🤖", "您好", "帮您", "输入", "常见问题"]):
+                                            param_data.append({"参数名称": param, "参数值": value})
+                                    
+                                    if param_data:
+                                        # 使用DataFrame展示参数
+                                        param_df = pd.DataFrame(param_data)
+                                        st.dataframe(param_df, use_container_width=True)
+                                    else:
+                                        st.info("没有找到详细参数信息")
                                 else:
                                     st.info("没有找到详细参数信息")
-                            else:
-                                st.info("没有找到详细参数信息")
-                        
-            recommendations = get_alternative_parts_func(part_number)
-            
-            # 保存到历史记录
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            st.session_state.search_history.append({
-                "timestamp": timestamp,
-                "part_number": part_number,
-                "recommendations": recommendations,
-                "type": "single"
-            })
-            
-            # 显示结果
-            display_search_results(part_number, recommendations)
+                with st.spinner(f"🔄 正在查询 {part_number} 的国产替代方案..."):                
+                    recommendations = get_alternative_parts_func(part_number)
+                    
+                    # 保存到历史记录
+                    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    st.session_state.search_history.append({
+                        "timestamp": timestamp,
+                        "part_number": part_number,
+                        "recommendations": recommendations,
+                        "type": "single"
+                    })
+                    
+                    # 显示结果
+                    display_search_results(part_number, recommendations)
     
     with tab2:
         # 聊天界面容器
@@ -1044,7 +1095,7 @@ def render_ui(get_alternative_parts_func):
         
         # 历史记录标题和清除按钮
         if len(st.session_state.search_history) > 0:
-            if st.button("清除历史记录", key="clear_history"):
+            if st.button("清除历史记录", key="clear_history_tab2"):
                 st.session_state.search_history = []
                 st.rerun()
         
@@ -1208,7 +1259,8 @@ def display_search_results(part_number, recommendations):
                 st.markdown(f"### 方案 {i}")
                 
                 # 型号名称 - 去掉后面的类别
-                st.markdown(f"### {rec.get('model', '未知型号')}")
+                # 使用HTML标签设置较小的字体
+                st.markdown(f"<h4 style='font-size:1.2rem;'>{rec.get('model', '未知型号')}</h4>", unsafe_allow_html=True)
                 
                 # 品牌显示栏 - 移除背景色
                 st.markdown(f"""
