@@ -5,6 +5,8 @@ import pandas as pd
 import tempfile  # 用于创建临时文件，支持文件下载功能
 from custom_components.hide_sidebar_items import get_sidebar_hide_code
 from backend import identify_component
+import base64
+
 
 # 不显示报错信息到前端
 st.set_option('client.showErrorDetails', False)
@@ -485,43 +487,87 @@ def render_ui(get_alternative_parts_func):
         div[role="separator"] {
             display: none !important;
         }
+        /* 重新定义标题容器，使用水平Flex布局 */
+        .header-container-optimized {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;  /* 缩小间隙使Logo更紧贴标题 */
+            margin: 15px 0 25px 0;
+            padding: 0;
+        }
+        
+        /* 放大Logo三倍并优化显示效果 */
+        .header-logo-enlarged {
+            width: 180px !important;  /* 60px * 3 = 180px */
+            height: auto;
+            object-fit: contain;
+        }
+        
+        /* 标题紧贴Logo */
+        .main-header-optimized {
+            margin: 0;
+            font-size: 2.8rem !important;  /* 稍微加大标题字号 */
+        }
+        div[data-testid="stExpander"] > div > button {
+            font-size: 20px !important;  /* 标题字体大小，按需调整 */
+            font-weight: 600 !important; /* 可选：加粗 */
+        }
     </style>
     """, unsafe_allow_html=True)
 
-    # 使用容器包裹标题，以应用额外样式
-    st.markdown('<div class="header-container">', unsafe_allow_html=True)
-    st.markdown('<h1 class="main-header">半岛智芯优选</h1>', unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
+    def get_image_base64(path):
+        try:
+            with open(path, "rb") as image_file:
+                return base64.b64encode(image_file.read()).decode("utf-8")
+        except Exception as e:
+            st.error(f"图片加载失败: {str(e)}")
+            return None
+
+    # 获取BASE64编码的图像
+    image_base64 = get_image_base64("image.png")
+
+    if image_base64:
+        st.markdown(
+            f'<div style="text-align: center;">'
+            f'<img src="data:image/png;base64,{image_base64}" style="width:180px; object-fit: contain;">'
+            f'</div>'
+            '<div style="text-align: center; margin-top: 10px;">'
+            '<h1 style="font-size: 2.8rem;">半岛智芯优选</h1>'
+            '</div>',
+            unsafe_allow_html=True
+        )
+
 
     # 增强标签样式，但使用原生Streamlit标签确保功能正常
     st.markdown("""
     <style>
-    /* 强制覆盖Streamlit标签样式 */
-    button[data-baseweb="tab"] div {
-        font-size: 24px !important;
-        font-weight: 700 !important;
-    }
-    
-    /* 增大标签页的按钮大小 */
-    button[data-baseweb="tab"] {
-        font-size: 24px !important;
-        font-weight: 700 !important;
-        padding: 18px 36px !important;
-        border-radius: 8px !important;
-        background-color: #f0f2f6 !important;
-    }
-    
-    /* 确保激活状态样式 */
-    button[data-baseweb="tab"][aria-selected="true"] {
-        background-color: #1a73e8 !important;
-        color: white !important;
-    }
-    
-    /* 调整标签容器样式 */
-    [data-testid="stHorizontalBlock"] [data-baseweb="tab-list"] {
-        justify-content: center !important;
-        gap: 20px !important;
-    }
+        /* 强制覆盖Streamlit标签样式 */
+        button[data-baseweb="tab"] div {
+            font-size: 24px !important;
+            font-weight: 700 !important;
+        }
+        
+        /* 增大标签页的按钮大小 */
+        button[data-baseweb="tab"] {
+            font-size: 24px !important;
+            font-weight: 700 !important;
+            padding: 18px 36px !important;
+            border-radius: 8px !important;
+            background-color: #f0f2f6 !important;
+        }
+        
+        /* 确保激活状态样式 */
+        button[data-baseweb="tab"][aria-selected="true"] {
+            background-color: #1a73e8 !important;
+            color: white !important;
+        }
+        
+        /* 调整标签容器样式 */
+        [data-testid="stHorizontalBlock"] [data-baseweb="tab-list"] {
+            justify-content: center !important;
+            gap: 20px !important;
+        }
     </style>
     """, unsafe_allow_html=True)
     
@@ -575,7 +621,7 @@ def render_ui(get_alternative_parts_func):
                     st.info("""
                     🔍 可能的原因：
                     - 输入型号格式错误（如纯数字或过短）
-                    - 数据库中无匹配记录
+                    - 数据库中无匹配记录(可能器件较新)
                     - 请尝试添加封装、参数等更多信息
                     """)
                 # return  # 删除原return语句，改用标记变量
@@ -585,108 +631,103 @@ def render_ui(get_alternative_parts_func):
                 # 原tab1的查询逻辑代码...
                 # 例如：
                 with st.spinner(f"🔄 检查输入中......"):
-                    # 调用后端函数获取替代方案
                     if component_info:
-                        # 使用卡片组件包裹信息
-                        # 增大字体的 CSS 样式
-                        expander_style = """
+                        custom_styles = """
                         <style>
-                            /* 针对expander标题的强优先级选择器 */
+                            /* 调整 Expander 标题样式 */
                             div[data-testid="stExpander"] > div > button > div > div {
-                                font-size: 40px !important;  
+                                font-size: 24px !important;  
                                 font-weight: 600 !important;
                             }
-                            
-                            /* 针对expander内容的强优先级选择器 */
+
+                            /* 去掉 Expander 内容区的白色背景 */
                             div[data-testid="stExpanderContent"] {
-                                font-size: 40px !important;  
-                                /* 关键：减少行间距 */
-                                line-height: 1.2 !important;  /* 缩小行高（默认~1.6） */
-                                margin-bottom: 0 !important;  /* 去掉内容底部空白 */
-                                padding-bottom: 0 !important; /* 去掉内边距 */
+                                background: transparent !important;  
+                                font-size: 16px !important;  /* 内容区字体调小，更合理 */
+                                line-height: 1.6 !important;  
+                                padding: 1rem !important;             
                             }
-                            
-                            /* 单独调整 markdown 段落间距 */
-                            div[data-testid="stExpanderContent"] p {
-                                margin: 0.3rem 0 !important; /* 缩小段落上下间距 */
+
+                            /* 优化分隔线样式 */
+                            hr {
+                                margin: 1rem 0 !important;
+                                border: none;
+                                border-top: 1px solid #eee;
                             }
-                            
-                            /* 调整 caption 间距（如果需要） */
-                            .stCaption {
-                                margin-top: 0 !important; /* 去掉与标题的间距 */
-                                margin-bottom: 0.5rem !important; /* 自定义下方间距 */
+
+                            /* 优化 Tabs 组件样式：缩小“参数详情”标签 */
+                            .stTabs {
+                                margin-top: 1rem !important;
+                            }
+                            .stTabs > div > button {
+                                font-size: 12px !important;  /* 调小字体 */
+                                padding: 4px 8px !important; /* 调小内边距，让标签更紧凑 */
+                                color: #4a5568 !important;   
+                                border: none !important;     
+                            }
+                            .stTabs > div > button:hover {
+                                background: #f1f5f9 !important;
+                            }
+                            .stTabs > div > button[data-selected] {
+                                color: #2b6cb0 !important;
+                                font-weight: 600 !important;
+                                border-bottom: 2px solid #2b6cb0 !important;
+                            }
+
+                            /* 优化 DataFrame 样式 */
+                            .stDataFrame {
+                                border-radius: 8px;
+                                overflow: hidden;
+                            }
+                            .stDataFrame table {
+                                font-size: 14px !important;
                             }
                         </style>
                         """
-                        
-                        with st.expander(f"📱 **{component_info['mpn']}** 元器件详情", expanded=False):
-                            # 添加顶部信息栏
-                           # 添加顶部信息栏
-                            cols = st.columns(1)  # 创建1列（返回包含1个列的列表）
+                        st.markdown(custom_styles, unsafe_allow_html=True)
 
-                            with cols[0]:  # 使用列表索引访问第一列
-                                st.markdown(
-                                    f"<h2 style='margin-bottom: 0.2rem; font-size: 24px; font-weight: 600;'>{component_info['manufacturer']} {component_info['mpn']}</h2>",
-                                    unsafe_allow_html=True
-                                )
-                                # 【修改2】缩小 caption 间距（配合上面的 margin-bottom）
-                                st.caption(
-                                    component_info.get('description', '电子元器件'),
-                                    unsafe_allow_html=True
-                                )
-                                # 加 CSS 强制缩小题注间距（如果还不够）
-                                st.markdown(
-                                    "<style>.stCaption { margin-top: 0 !important; }</style>",
-                                    unsafe_allow_html=True
-                                )
-                            # 添加分隔线
-                            st.markdown("---")
-                            
-                            # 使用标签页来分隔不同类别的信息，增加标签页样式
-                            info_tab1, info_tab2 = st.tabs([
-                                "📊 基本信息", 
-                                "⚙️ 参数详情",
-                            ])
-                            
-                            with info_tab1:
-                                # 基本信息卡片
-                                with st.container():
-                                    col1, col2, col3 = st.columns(3)
-                                    with col1:
-                                        st.markdown(f"**价格：** {component_info['price']}")
-                                        st.markdown(f"**封装：** {component_info.get('package', '未知')}")
-                                        st.markdown(f"**类别：** {component_info.get('category', '未知')}")
-                                    with col2:
-                                        st.markdown(f"**品牌：** {component_info['manufacturer']}")
-                                        st.markdown(f"**型号：** {component_info['mpn']}")
-                                        st.markdown(f"**库存：** {component_info.get('stock', '未知')}")
-                                    with col3:
-                                        st.markdown(f"**最小包装：** {component_info.get('min_order', '未知')}")
-                                        st.markdown(f"**RoHS：** {component_info.get('rohs', '未知')}")
-                                        st.markdown(f"**生命周期：** {component_info.get('lifetime', '未知')}")
-                                
-                                # 添加图片展示区域
-                                if 'image' in component_info and component_info['image']:
-                                    st.image(component_info['image'], caption=f"{component_info['mpn']} 外观图", width=200)
-                            
-                            with info_tab2:
-                                # 参数详情区域，使用表格展示更清晰
-                                if component_info["parameters"]:
-                                    # 创建参数表格
-                                    param_data = []
-                                    for param, value in component_info["parameters"].items():
-                                        # 过滤非参数内容
-                                        if not any(char in param or char in value for char in ["🤖", "您好", "帮您", "输入", "常见问题"]):
-                                            param_data.append({"参数名称": param, "参数值": value})
-                                    
-                                    if param_data:
-                                        # 使用DataFrame展示参数
-                                        param_df = pd.DataFrame(param_data)
-                                        st.dataframe(param_df, use_container_width=True)
-                                    else:
-                                        st.info("没有找到详细参数信息")
+                        # 元器件详情 Expander
+                        with st.expander(f" {component_info['mpn']} 元器件详情", expanded=False):
+                            # 标题与制造商信息
+                            st.markdown(
+                                f"<h2 style='margin: 0; font-size: 18px; font-weight: 600;'>{component_info['manufacturer']} {component_info['mpn']}</h2>",
+                                unsafe_allow_html=True
+                            )
+
+                            # 价格与品牌信息（横向布局）
+                            col_price, col_brand = st.columns(2)
+                            with col_price:
+                                st.markdown(f"**价格**：{component_info['price']}", unsafe_allow_html=True)
+                            with col_brand:
+                                st.markdown(f"**品牌**：{component_info['manufacturer']}", unsafe_allow_html=True)
+
+                            # 描述信息
+                            st.caption(component_info.get('description', '电子元器件'), unsafe_allow_html=True)
+                            st.markdown("<hr>", unsafe_allow_html=True)  # 分隔线
+
+                            if component_info["parameters"]:
+                                param_data = []
+                                for param, value in component_info["parameters"].items():
+                                    if not any(
+                                        char in param or char in value 
+                                        for char in ["🤖", "您好", "帮您", "输入", "常见问题"]
+                                    ):
+                                        param_data.append({"参数名称": param, "参数值": value})
+
+                                if param_data:
+                                    param_df = pd.DataFrame(param_data)
+                                    st.dataframe(
+                                        param_df,
+                                        use_container_width=True,
+                                        column_config={
+                                            "参数名称": st.column_config.TextColumn(width="300px"),
+                                            "参数值": st.column_config.TextColumn(width="500px")
+                                        }
+                                    )
                                 else:
-                                    st.info("没有找到详细参数信息")
+                                    st.info("没有找到有效参数信息", icon="ℹ️")
+                            else:
+                                st.info("没有找到详细参数信息", icon="ℹ️")
                 with st.spinner(f"🔄 正在查询 {part_number} 的国产替代方案..."):                
                     recommendations = get_alternative_parts_func(part_number)
                     
@@ -1184,7 +1225,7 @@ def render_ui(get_alternative_parts_func):
 
     # 添加页脚信息 - 降低显示度
     st.markdown("---")
-    st.markdown('<p class="footer-text">本工具基于DeepSeek大语言模型和Octopart元件库，提供元器件替代参考</p>', unsafe_allow_html=True)
+    st.markdown('<p class="footer-text">本工具基于DeepSeek大语言模型和Nexar元件库，提供元器件替代参考</p>', unsafe_allow_html=True)
 
 # 抽取显示结果的函数，以便重复使用
 def display_search_results(part_number, recommendations):
@@ -1252,87 +1293,59 @@ def display_search_results(part_number, recommendations):
         # 创建列容器来强制横向布局
         cols = st.columns(len(recommendations))
         
-        # 在每个列中放置一个卡片
+        # 在每个列中放置一个卡片（优化后）
         for i, (col, rec) in enumerate(zip(cols, recommendations), 1):
             with col:
-                # 卡片标题栏
+                # 方案标题
                 st.markdown(f"### 方案 {i}")
                 
-                # 型号名称 - 去掉后面的类别
-                # 使用HTML标签设置较小的字体
-                st.markdown(f"<h4 style='font-size:1.2rem;'>{rec.get('model', '未知型号')}</h4>", unsafe_allow_html=True)
+                # 型号名称
+                st.markdown(f"<h4 style='font-size:1.2rem; margin-bottom: 0.3rem;'>{rec.get('model', '未知型号')}</h4>", unsafe_allow_html=True)
                 
-                # 品牌显示栏 - 移除背景色
-                st.markdown(f"""
-                <div style='border: 1px solid #ccc; padding: 8px 16px; border-radius: 4px; margin-bottom: 10px;'>
-                    {rec.get('brand', '未知品牌')}
-                </div>
-                """, unsafe_allow_html=True)
+                # 品牌显示（移除边框，改为纯文本）
+                st.markdown(f"**品牌：** {rec.get('brand', '未知品牌')}", unsafe_allow_html=True)
                 
-                # Pin-to-Pin兼容性显示 - 使用简单的边框样式而非彩色背景
+                # Pin-to-Pin 兼容性（简化样式，用符号直观展示）
                 pin_to_pin = rec.get('pinToPin', False)
-                pin_class = "pin-compatible" if pin_to_pin else "non-pin-compatible"
-                pin_text = "Pin兼容" if pin_to_pin else "非Pin兼容"
+                pin_symbol = "✅" if pin_to_pin else "❌"
+                st.markdown(f"**Pin兼容：** {pin_symbol} {('Pin兼容' if pin_to_pin else '非Pin兼容')}", unsafe_allow_html=True)
                 
-                st.markdown(f"""
-                <div class="{pin_class}" style='padding: 8px 16px; border-radius: 4px; margin-bottom: 10px;'>
-                    {pin_text}
-                </div>
-                """, unsafe_allow_html=True)
-                
-                # 国产/进口标签 - 修改为使用专用样式类，并直接与信息表连接
+                # 国产/进口标签（绿色背景标识国产）
                 type_display = ""
                 if rec['type'] == "国产":
-                    type_display = "<span class='type-label' style='background-color: #ef5350; color: white;'>国产</span>"
+                    type_display = "<span style='background-color: #4CAF50; color: white; padding: 2px 8px; border-radius: 4px;'>国产</span>"
                 else:
-                    type_display = "<span class='type-label' style='background-color: #42a5f5; color: white;'>进口</span>"
+                    type_display = "<span style='background-color: #2196F3; color: white; padding: 2px 8px; border-radius: 4px;'>进口</span>"
+                st.markdown(f"**类型：** {type_display}", unsafe_allow_html=True)
                 
-                # 参数信息表格 - 直接与标签连接，没有间隔
-                st.markdown(f"""
-                <div style="margin: 0; padding: 0;">
-                {type_display}
-                </div>
-                """, unsafe_allow_html=True)
-                
-                # 使用统一布局确保对齐
+                # 统一信息布局（紧凑排列）
                 st.markdown("""
-                <div class="info-row" style="margin-top: 2px;">
-                    <div class="info-label">类型：</div>
-                    <div class="info-value">{}</div>
-                </div>
-                <div class="info-row">
-                    <div class="info-label">封装：</div>
-                    <div class="info-value">{}</div>
-                </div>
-                <div class="info-row">
-                    <div class="info-label">价格：</div>
-                    <div class="info-value price-value">{}</div>
+                <div style="margin-top: 8px; line-height: 1.6;">
+                    <div style="display: flex; margin-bottom: 4px;">
+                        <div style="min-width: 60px; font-weight: 500;">封装：</div>
+                        <div>{}</div>
+                    </div>
+                    <div style="display: flex; margin-bottom: 4px;">
+                        <div style="min-width: 60px; font-weight: 500;">价格：</div>
+                        <div>{}</div>
+                    </div>
+                    <div style="display: flex; margin-bottom: 8px;">
+                        <div style="min-width: 60px; font-weight: 500;">参数：</div>
+                        <div>{}</div>
+                    </div>
+                    <div style="display: flex;">
+                        <div style="min-width: 60px; font-weight: 500;">供货周期：</div>
+                        <div>{}</div>
+                    </div>
                 </div>
                 """.format(
-                    rec.get('category', 'MCU'), 
                     rec.get('package', 'LQFP48'),
-                    rec.get('price', '未知')
+                    rec.get('price', '未知'),
+                    rec.get('parameters', 'CPU内核: ARM Cortex-M3, 主频: 72MHz, Flash: 64KB, RAM: 20KB, IO: 37'),
+                    rec.get('leadTime', '3-5周')
                 ), unsafe_allow_html=True)
                 
-                # 参数详情 - 调整为与其他信息对齐的样式
-                st.markdown("""
-                <div class="info-row">
-                    <div class="info-label">参数：</div>
-                    <div class="info-value">{}</div>
-                </div>
-                """.format(rec.get('parameters', 'CPU内核: ARM Cortex-M3, 主频: 72MHz, Flash: 64KB, RAM: 20KB, IO: 37')), unsafe_allow_html=True)
-                
-                # 供货周期
-                st.markdown("""
-                <div class="info-row">
-                    <div class="info-label">供货周期：</div>
-                    <div class="info-value">{}</div>
-                </div>
-                """.format(rec.get('leadTime', '3-5周')), unsafe_allow_html=True)
-                
-                # 数据手册链接
-                st.markdown(f"[参考信息]({rec.get('datasheet', 'https://example.com')})")
-                
-                st.markdown("</div>", unsafe_allow_html=True)
+                # 数据手册链接（简化样式）
+                st.markdown(f"[数据手册]({rec.get('datasheet', 'https://example.com')})", unsafe_allow_html=True)
     else:
         st.info("未找到替代方案")

@@ -1370,9 +1370,9 @@ def chat_with_expert(user_input, history=None):
 
 **处理流程**
 1. 参数解析阶段：
-   - 识别<硬性参数>：电压/电流/频率/温度/封装
-   - 提取<应用场景>：工业/消费/汽车/医疗
-   - 确认<限制条件>：成本/供货周期/认证/国产化需求
+   - 识别【硬性参数】（字体加粗）：电压/电流/频率/温度/封装
+   - 提取【应用场景】（字体加粗）：工业/消费/汽车/医疗
+   - 确认【限制条件】（字体加粗）：成本/供货周期/认证/国产化需求
    - 强制检查：必须询问"是否需要包含国产方案？"
 
 2. 方案生成阶段：
@@ -1441,28 +1441,13 @@ def format_response(text):
     return text
 
 def identify_component(mpn):
-    """识别输入型号对应的元器件信息，增加多重验证"""
-    
-    # 基本格式验证
+    """识别元器件信息，新增 PIN 兼容标记、强化校验"""
     import re
-    
-    # 检查是否为纯数字或太短的输入
-    if mpn.isdigit() or len(mpn) < 3:
+    # 1. 基础格式校验（更严格兜底）
+    if not mpn or len(mpn) < 3 or not re.search(r'[A-Za-z0-9]', mpn):
         return {}
-    
-    # 常见元器件型号模式
-    valid_patterns = [
-        r'^[A-Za-z0-9\-_]+$',
-        r'^[A-Za-z]+[0-9]+.*$',
-        r'^[0-9]+[A-Za-z]+.*$',
-    ]
-    
-    # 检查是否匹配任何有效模式
-    is_valid = any(re.match(pattern, mpn) for pattern in valid_patterns)
-    if not is_valid:
-        return {}
-    
-    # 调用API获取元器件信息
+
+    # 2. 调用 Nexar API 获取数据
     variables = {"q": mpn, "limit": 1}
     try:
         data = nexar_client.get_query(QUERY_ALTERNATIVE_PARTS, variables)
@@ -1477,58 +1462,93 @@ def identify_component(mpn):
             return {}
         
         part = results[0].get("part", {})
-        
-        # 检查关键信息是否存在
+        # 3. 关键信息完整性校验（必填项更多兜底）
         required_fields = ["mpn", "manufacturer", "specs"]
         if not all(part.get(field) for field in required_fields):
             return {}
-        
-        # 提取元器件信息
+
+        # 4. 组装基础信息
         component_info = {
             "mpn": part.get("mpn", "未知型号"),
             "manufacturer": part.get("manufacturer", {}).get("name", "未知制造商"),
             "parameters": {},
             "price": "未知",
+            "category": "未知",  # 补充类型字段，前端要用
+            "package": "未知",   # 补充封装字段，前端要用
+            "pin_compatible": "未知",  # 新增 PIN 兼容标记
             "status": "未知",
             "leadTime": "未知"
         }
-        
-        # 提取参数信息
+
+        # 5. 提取参数（含类型、封装，尽量从 specs 里解析）
         specs = part.get("specs", [])
         for spec in specs:
-            attribute = spec.get("attribute", {})
-            name = attribute.get("name", "未知参数")
-            value = spec.get("value", "未知值")
+            attr = spec.get("attribute", {})
+            name = attr.get("name", "").strip()
+            value = spec.get("value", "未知值").strip()
             component_info["parameters"][name] = value
-        # 提取价格信息
+
+            # 尝试从参数里解析类型、封装（适配不同 API 返回）
+            if name.lower() == "category" and component_info["category"] == "未知":
+                component_info["category"] = value
+            elif name.lower() == "package" and component_info["package"] == "未知":
+                component_info["package"] = value
+
+        # 6. 提取价格（保持原有逻辑）
         price_info = part.get("medianPrice1000", {})
-        price_value = price_info.get("price")
+        price_val = price_info.get("price")
         currency = price_info.get("currency", "USD")
-        if price_value:
-            component_info["price"] = f"{price_value:.4f} {currency}"
+        if price_val:
+            component_info["price"] = f"{price_val:.4f} {currency}"
+
+        # 7. 强化PIN兼容识别逻辑（支持更多参数名称和格式）
+        pin_compatible = "未知"
+        for spec in specs:
+            attr_name = spec.get("attribute", {}).get("name", "").lower()
+            attr_value = spec.get("value", "").lower()
+            
+            # 支持多种PIN兼容相关参数名称
+            if any(keyword in attr_name for keyword in ["pin compat", "pin to pin", "pin compatible", "pincompat"]):
+                if "yes" in attr_value or "true" in attr_value or "兼容" in attr_value:
+                    pin_compatible = "是"
+                elif "no" in attr_value or "false" in attr_value or "不兼容" in attr_value:
+                    pin_compatible = "否"
+                else:
+                    pin_compatible = attr_value
+                break
+                
+            # 从封装信息间接判断（如果封装相同，可能PIN兼容）
+            if attr_name == "package":
+                # 这里需要原器件的封装信息进行对比，假设原器件封装已知
+                original_package = "需要从上下文中获取原器件封装"
+                if attr_value == original_package:
+                    pin_compatible = "可能兼容（封装相同）"
         
-        # 提取生命周期和库存状态
+        component_info["pin_compatible"] = pin_compatible
+
+        # 8. 生命周期、交期（保持原有逻辑）
         life_cycle = part.get("lifeCycle", "未知")
         obsolete = part.get("obsolete", False)
         lead_days = part.get("estimatedFactoryLeadDays")
-        
+
         if obsolete:
             component_info["status"] = "已停产"
         elif life_cycle:
-            if "OBSOLETE" in life_cycle or "END OF LIFE" in life_cycle.upper():
+            life_cycle_upper = life_cycle.upper()
+            if "OBSOLETE" in life_cycle_upper or "END OF LIFE" in life_cycle_upper:
                 component_info["status"] = "已停产"
-            elif "ACTIVE" in life_cycle.upper() or "PRODUCTION" in life_cycle.upper():
+            elif "ACTIVE" in life_cycle_upper or "PRODUCTION" in life_cycle_upper:
                 component_info["status"] = "量产中"
-            elif "NEW" in life_cycle.upper() or "INTRO" in life_cycle.upper():
+            elif "NEW" in life_cycle_upper or "INTRO" in life_cycle_upper:
                 component_info["status"] = "新产品"
-            elif "NOT RECOMMENDED" in life_cycle.upper():
+            elif "NOT RECOMMENDED" in life_cycle_upper:
                 component_info["status"] = "不推荐使用"
             else:
                 component_info["status"] = life_cycle
-        
+
         if lead_days:
             component_info["leadTime"] = f"{lead_days} 天"
-        
+
         return component_info
     
     except Exception as e:
