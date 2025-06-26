@@ -217,6 +217,7 @@ def render_ui(get_alternative_parts_func):
             margin: 0;
             padding: 0;
             width: 100%;
+            border: 2px solid #1a73e8 !important;
         }
         
         /* 搜索输入框样式增强 */
@@ -233,11 +234,12 @@ def render_ui(get_alternative_parts_func):
             font-size: 1.05rem !important;
             color: #202124 !important;
             box-shadow: 0 2px 6px rgba(26, 115, 232, 0.1) !important;
-            transition: all 0.3s ease !important;
+            transition: border-color 0.3s ease !important;
         }
         
         /* 输入框:focus状态 */
         .stTextInput input:focus {
+            border-color: #4285f4 !important;
             border: 2px solid #1a73e8 !important;
             box-shadow: 0 3px 8px rgba(26, 115, 232, 0.25) !important;
             outline: none !important;
@@ -492,14 +494,16 @@ def render_ui(get_alternative_parts_func):
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 20px;  /* 缩小间隙使Logo更紧贴标题 */
+            gap: 15px;  /* 缩小间隙使Logo更紧贴标题 */
             margin: 15px 0 25px 0;
             padding: 0;
+            /* 关键：向左偏移4个字符宽度（需根据实际字体调整，这里用固定值示例） */
+            margin-left: -10em; /* em 单位与字体大小关联，也可用 px，如 -60px */
         }
         
         /* 放大Logo三倍并优化显示效果 */
         .header-logo-enlarged {
-            width: 180px !important;  /* 60px * 3 = 180px */
+            width: 200px !important;  /* 60px * 3 = 180px */
             height: auto;
             object-fit: contain;
         }
@@ -513,6 +517,7 @@ def render_ui(get_alternative_parts_func):
             font-size: 20px !important;  /* 标题字体大小，按需调整 */
             font-weight: 600 !important; /* 可选：加粗 */
         }
+
     </style>
     """, unsafe_allow_html=True)
 
@@ -529,50 +534,69 @@ def render_ui(get_alternative_parts_func):
 
     if image_base64:
         st.markdown(
-            f'<div style="text-align: center;">'
-            f'<img src="data:image/png;base64,{image_base64}" style="width:180px; object-fit: contain;">'
-            f'</div>'
-            '<div style="text-align: center; margin-top: 10px;">'
-            '<h1 style="font-size: 2.8rem;">半岛智芯优选</h1>'
-            '</div>',
+            f'<div class="header-container-optimized">'
+            f'<img src="data:image/png;base64,{image_base64}" class="header-logo-enlarged" alt="半岛智芯Logo">'
+            f'<h1 class="main-header-optimized">智芯优选      </h1>'
+            f'</div>',
             unsafe_allow_html=True
         )
 
 
     # 增强标签样式，但使用原生Streamlit标签确保功能正常
     st.markdown("""
-    <style>
-        /* 强制覆盖Streamlit标签样式 */
-        button[data-baseweb="tab"] div {
-            font-size: 24px !important;
-            font-weight: 700 !important;
-        }
-        
-        /* 增大标签页的按钮大小 */
-        button[data-baseweb="tab"] {
-            font-size: 24px !important;
-            font-weight: 700 !important;
-            padding: 18px 36px !important;
-            border-radius: 8px !important;
-            background-color: #f0f2f6 !important;
-        }
-        
-        /* 确保激活状态样式 */
-        button[data-baseweb="tab"][aria-selected="true"] {
-            background-color: #1a73e8 !important;
-            color: white !important;
-        }
-        
-        /* 调整标签容器样式 */
-        [data-testid="stHorizontalBlock"] [data-baseweb="tab-list"] {
-            justify-content: center !important;
-            gap: 20px !important;
-        }
-    </style>
-    """, unsafe_allow_html=True)
+        <style>
+            /* 标签容器整体布局 */
+            [data-testid="stHorizontalBlock"] [data-baseweb="tab-list"] {
+                justify-content: center;
+                gap: 12px; /* 缩小间距让按钮更紧凑 */
+                margin: 20px 0; /* 上下留白 */
+            }
+
+            /* 标签按钮基础样式 */
+            button[data-baseweb="tab"] {
+                font-size: 24px !important; /* 增大字体大小，让文字更醒目 */
+                font-weight: 700 !important; /* 加大加粗程度 */
+                padding: 14px 28px !important; /* 舒适的点击区域 */
+                border-radius: 8px !important;
+                background-color: #f8f9fa !important; /* 浅灰背景更像按钮 */
+                border: 2px solid #e0e0e0 !important; /* 增加边框 */
+                transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94) !important;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.05) !important; /* 轻微投影 */
+            }
+
+            /* 标签按钮文字样式，与按钮本身字体设置统一 */
+            button[data-baseweb="tab"] div {
+                font-size: 24px !important;
+                font-weight: 700 !important;
+            }
+
+            /* 激活状态样式 */
+            button[data-baseweb="tab"][aria-selected="true"] {
+                background-color: #1a73e8 !important;
+                color: white !important;
+                border-color: #1a73e8 !important;
+                box-shadow: 0 4px 12px rgba(26, 115, 232, 0.2) !important; /* 增强投影 */
+                transform: translateY(-1px); /* 轻微上浮 */
+            }
+
+            /* 悬停状态样式 */
+            button[data-baseweb="tab"]:not([aria-selected="true"]):hover {
+                background-color: #f0f3f8 !important;
+                border-color: #c3d2f1 !important;
+                box-shadow: 0 4px 8px rgba(26, 115, 232, 0.1) !important;
+                transform: translateY(-1px); /* 统一悬浮效果 */
+            }
+
+            /* 聚焦状态优化（辅助键盘操作） */
+            button[data-baseweb="tab"]:focus-visible {
+                outline: 3px solid #4285f420 !important; /* 半透明白色聚焦环 */
+                outline-offset: 2px;
+            }
+        </style>
+        """, unsafe_allow_html=True)
     
     # 创建原始标签
-    tab1, tab2, tab3 = st.tabs(["元器件替代查询", "💬 AI选型助手", "批量替代查询"])
+    tab1, tab2, tab3 = st.tabs(["替代优选", "精准选型", "批量查询"])
 
     with tab1:
         # 搜索区域 - 修改结构，确保输入框和按钮完全匹配
@@ -896,7 +920,7 @@ def render_ui(get_alternative_parts_func):
                 </style>
                 
                 <div class="example-container">
-                    推荐工业级3.3V LDO，要求：输入电压≥5V，输出电流500mA，静态电流&lt;50μA，通过AEC-Q100认证
+                    推荐工业级3.3V LDO，要求：输入电压≥5V，输出电流500mA，静态电流&lt;50μA
                 </div>
                 """, unsafe_allow_html=True)
             
@@ -1308,7 +1332,7 @@ def display_search_results(part_number, recommendations):
                 # Pin-to-Pin 兼容性（简化样式，用符号直观展示）
                 pin_to_pin = rec.get('pinToPin', False)
                 pin_symbol = "✅" if pin_to_pin else "❌"
-                st.markdown(f"**Pin兼容：** {pin_symbol} {('Pin兼容' if pin_to_pin else '非Pin兼容')}", unsafe_allow_html=True)
+                st.markdown(f"**兼容：** {pin_symbol} {('Pin兼容' if pin_to_pin else '非Pin兼容')}", unsafe_allow_html=True)
                 
                 # 国产/进口标签（绿色背景标识国产）
                 type_display = ""
@@ -1316,7 +1340,7 @@ def display_search_results(part_number, recommendations):
                     type_display = "<span style='background-color: #4CAF50; color: white; padding: 2px 8px; border-radius: 4px;'>国产</span>"
                 else:
                     type_display = "<span style='background-color: #2196F3; color: white; padding: 2px 8px; border-radius: 4px;'>进口</span>"
-                st.markdown(f"**类型：** {type_display}", unsafe_allow_html=True)
+                st.markdown(f"**产地：** {type_display}", unsafe_allow_html=True)
                 
                 # 统一信息布局（紧凑排列）
                 st.markdown("""
@@ -1334,7 +1358,7 @@ def display_search_results(part_number, recommendations):
                         <div>{}</div>
                     </div>
                     <div style="display: flex;">
-                        <div style="min-width: 60px; font-weight: 500;">供货周期：</div>
+                        <div style="min-width: 60px; font-weight: 500;">货期：</div>
                         <div>{}</div>
                     </div>
                 </div>
@@ -1346,6 +1370,6 @@ def display_search_results(part_number, recommendations):
                 ), unsafe_allow_html=True)
                 
                 # 数据手册链接（简化样式）
-                st.markdown(f"[数据手册]({rec.get('datasheet', 'https://example.com')})", unsafe_allow_html=True)
+                st.markdown(f"[参考信息]({rec.get('datasheet', 'https://example.com')})", unsafe_allow_html=True)
     else:
         st.info("未找到替代方案")

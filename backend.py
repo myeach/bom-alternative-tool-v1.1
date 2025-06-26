@@ -1441,7 +1441,7 @@ def format_response(text):
     return text
 
 def identify_component(mpn):
-    """识别元器件信息，新增 PIN 兼容标记、强化校验"""
+    """识别元器件信息，新增 PIN 兼容标记、强化校验，支持DeepSeek检索补充"""
     import re
     # 1. 基础格式校验（更严格兜底）
     if not mpn or len(mpn) < 3 or not re.search(r'[A-Za-z0-9]', mpn):
@@ -1453,19 +1453,22 @@ def identify_component(mpn):
         data = nexar_client.get_query(QUERY_ALTERNATIVE_PARTS, variables)
         
         if not data:
-            return {}
+            st.sidebar.info(f"Nexar未找到{mpn}，尝试使用DeepSeek检索")
+            return call_deepseek_for_component(mpn)  # 调用DeepSeek检索
         
         sup_search = data.get("supSearchMpn", {})
         results = sup_search.get("results", [])
         
         if not results:
-            return {}
+            st.sidebar.info(f"Nexar结果为空，尝试使用DeepSeek检索{mpn}")
+            return call_deepseek_for_component(mpn)  # 调用DeepSeek检索
         
         part = results[0].get("part", {})
         # 3. 关键信息完整性校验（必填项更多兜底）
         required_fields = ["mpn", "manufacturer", "specs"]
         if not all(part.get(field) for field in required_fields):
-            return {}
+            st.sidebar.info(f"Nexar数据不完整，尝试使用DeepSeek检索{mpn}")
+            return call_deepseek_for_component(mpn)  # 调用DeepSeek检索
 
         # 4. 组装基础信息
         component_info = {
@@ -1499,7 +1502,7 @@ def identify_component(mpn):
         price_val = price_info.get("price")
         currency = price_info.get("currency", "USD")
         if price_val:
-            component_info["price"] = f"{price_val:.4f} {currency}"
+            component_info["price"] = format_price(price_val, currency)
 
         # 7. 强化PIN兼容识别逻辑（支持更多参数名称和格式）
         pin_compatible = "未知"
@@ -1552,8 +1555,229 @@ def identify_component(mpn):
         return component_info
     
     except Exception as e:
-        st.error(f"Nexar API 查询失败: {e}")
+        st.error(f"Nexar API 查询失败: {e}，尝试使用DeepSeek检索")
         import traceback
         with st.sidebar.expander("Nexar API错误详情", expanded=False):
             st.code(traceback.format_exc())
-        return {}
+        return call_deepseek_for_component(mpn)  # 调用DeepSeek检索
+
+def call_deepseek_for_component(mpn):
+    """调用DeepSeek API获取元器件信息"""
+    try:
+        # 构造DeepSeek提示词
+        prompt = f"""
+        任务：你是一个专业的电子元器件专家，请分析以下元器件型号并提取关键信息：
+        
+        元器件型号：{mpn}
+        
+        要求：
+        1. 提取以下关键信息（如果无法获取则填"未知"）：
+           - 制造商
+           - 元器件类别（如MCU、DCDC、LDO等）
+           - 封装类型
+           - 主要技术参数（格式为JSON对象，例如：{{"电压": "3.3V", "电流": "1A"}}）
+           - 价格范围（格式示例："¥10-¥15" 或 "$1.5-$2.0"）
+           - 生命周期状态（量产中、已停产等）
+           - 供货周期
+           - 是否为PIN兼容器件（是/否/未知）
+           
+        2. 输出格式要求：
+        {{
+            "mpn": "{mpn}",
+            "manufacturer": "制造商名称",
+            "category": "元器件类别",
+            "package": "封装类型",
+            "parameters": {{"参数名称": "参数值", ...}},
+            "price": "价格范围，包含货币符号",
+            "status": "生命周期状态",
+            "leadTime": "供货周期",
+            "pin_compatible": "是/否/未知"
+        }}
+        
+        3. 注意事项：
+        - 严格按照JSON格式输出，不添加任何额外内容
+        - 价格范围必须包含货币符号（¥或$）
+        """
+        
+        # 调用DeepSeek API
+        response = deepseek_client.chat.completions.create(
+            model="deepseek-chat",
+            messages=[
+                {"role": "system", "content": "你是一个精通电子元器件的专家，能够根据型号准确提取元器件关键信息。始终以有效的JSON格式回复，不添加任何额外说明。"},
+                {"role": "user", "content": prompt}
+            ],
+            stream=False,
+            max_tokens=500
+        )
+        
+        raw_content = response.choices[0].message.content
+        
+        # 记录API返回的原始内容以便调试
+        with st.sidebar.expander(f"调试信息 - DeepSeek响应 ({mpn})", expanded=False):
+            st.write(f"**DeepSeek原始响应:**")
+            st.code(raw_content, language="text")
+        
+        # 解析DeepSeek响应
+        component_info = parse_deepseek_response(raw_content, mpn)
+        return component_info
+    
+    except Exception as e:
+        st.error(f"DeepSeek API 调用失败: {e}")
+        import traceback
+        with st.sidebar.expander("DeepSeek API错误详情", expanded=False):
+            st.code(traceback.format_exc())
+        return {
+            "mpn": mpn,
+            "manufacturer": "未知",
+            "category": "未知",
+            "package": "未知",
+            "parameters": {},
+            "price": "未知",
+            "status": "未知",
+            "leadTime": "未知",
+            "pin_compatible": "未知"
+        }
+
+def parse_deepseek_response(response_content, mpn):
+    """解析DeepSeek API返回的元器件信息"""
+    import json
+    import re
+    
+    # 尝试直接解析JSON
+    try:
+        data = json.loads(response_content)
+        # 确保返回数据包含必要字段
+        component_info = {
+            "mpn": data.get("mpn", mpn),
+            "manufacturer": data.get("manufacturer", "未知"),
+            "category": data.get("category", "未知"),
+            "package": data.get("package", "未知"),
+            "parameters": data.get("parameters", {}),  # 直接使用JSON对象
+            "price": format_price_string(data.get("price", "未知")),
+            "status": data.get("status", "未知"),
+            "leadTime": data.get("leadTime", "未知"),
+            "pin_compatible": data.get("pin_compatible", "未知")
+        }
+        
+        # 如果parameters是字符串格式，尝试解析为字典
+        if isinstance(component_info["parameters"], str):
+            try:
+                component_info["parameters"] = json.loads(component_info["parameters"])
+            except:
+                # 解析失败，尝试简单分割
+                params = {}
+                params_text = component_info["parameters"]
+                if params_text and params_text != "未知":
+                    for param in params_text.split(","):
+                        if ":" in param:
+                            key, value = param.split(":", 1)
+                            params[key.strip()] = value.strip()
+                        else:
+                            params[param.strip()] = "未知"
+                component_info["parameters"] = params
+        
+        return component_info
+    
+    except json.JSONDecodeError:
+        # 尝试从响应中提取JSON
+        json_match = re.search(r'(\{.*\})', response_content, re.DOTALL)
+        if json_match:
+            try:
+                data = json.loads(json_match.group(1))
+                component_info = {
+                    "mpn": data.get("mpn", mpn),
+                    "manufacturer": data.get("manufacturer", "未知"),
+                    "category": data.get("category", "未知"),
+                    "package": data.get("package", "未知"),
+                    "parameters": data.get("parameters", {}),
+                    "price": format_price_string(data.get("price", "未知")),
+                    "status": data.get("status", "未知"),
+                    "leadTime": data.get("leadTime", "未知"),
+                    "pin_compatible": data.get("pin_compatible", "未知")
+                }
+                
+                # 如果parameters是字符串格式，尝试解析为字典
+                if isinstance(component_info["parameters"], str):
+                    try:
+                        component_info["parameters"] = json.loads(component_info["parameters"])
+                    except:
+                        params = {}
+                        params_text = component_info["parameters"]
+                        if params_text and params_text != "未知":
+                            for param in params_text.split(","):
+                                if ":" in param:
+                                    key, value = param.split(":", 1)
+                                    params[key.strip()] = value.strip()
+                                else:
+                                    params[param.strip()] = "未知"
+                        component_info["parameters"] = params
+                
+                return component_info
+            except:
+                pass
+    
+    # 无法解析JSON时返回默认值
+    st.sidebar.warning(f"无法解析DeepSeek响应，返回默认值: {response_content}")
+    return {
+        "mpn": mpn,
+        "manufacturer": "未知",
+        "category": "未知",
+        "package": "未知",
+        "parameters": {},
+        "price": "未知",
+        "status": "未知",
+        "leadTime": "未知",
+        "pin_compatible": "未知"
+    }
+
+def format_price(price_val, currency):
+    """格式化价格，添加货币符号"""
+    if currency.lower() == "cny" or currency.lower() == "rmb":
+        return f"¥{price_val:.2f}"
+    elif currency.lower() == "usd":
+        return f"${price_val:.2f}"
+    else:
+        return f"{price_val:.2f} {currency}"
+
+def format_price_string(price_str):
+    """处理DeepSeek返回的价格字符串，确保包含货币符号"""
+    if not price_str or price_str.lower() == "未知":
+        return "未知"
+    
+    # 检查是否已经包含货币符号
+    if price_str.startswith("¥") or price_str.startswith("$"):
+        return price_str
+    
+    # 尝试从字符串中提取价格和货币
+    try:
+        # 检查是否有范围格式
+        if "-" in price_str:
+            parts = price_str.split("-")
+            if len(parts) == 2:
+                # 尝试解析每个部分
+                def parse_price(part):
+                    part = part.strip()
+                    if part.startswith("¥"):
+                        return "¥" + part[1:]
+                    elif part.startswith("$"):
+                        return "$" + part[1:]
+                    else:
+                        # 尝试判断货币
+                        if "rmb" in part.lower() or "cny" in part.lower():
+                            return "¥" + re.sub(r'[^\d.]', '', part)
+                        elif "usd" in part.lower() or "$" in part:
+                            return "$" + re.sub(r'[^\d.]', '', part)
+                        return part
+                
+                return f"{parse_price(parts[0])}-{parse_price(parts[1])}"
+        
+        # 处理单个价格
+        if "rmb" in price_str.lower() or "cny" in price_str.lower():
+            return "¥" + re.sub(r'[^\d.]', '', price_str)
+        elif "usd" in price_str.lower() or "$" in price_str:
+            return "$" + re.sub(r'[^\d.]', '', price_str)
+        
+        # 无法识别货币，直接返回
+        return price_str
+    except:
+        return price_str
