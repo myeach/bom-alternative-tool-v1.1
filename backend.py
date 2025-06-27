@@ -1063,6 +1063,9 @@ def batch_get_alternative_parts(component_list, progress_callback=None):
     # 设置最大重试次数
     max_retries = 3
     
+     # 新增：收集所有元器件的停产预警信息
+    eol_warnings = []  # 格式: [{"mpn": "...", "name": "...", "eol_date": "...", "warning_level": "...", ...}, ...]
+
     # 遍历每个元器件
     for idx, component in enumerate(component_list):
         mpn = component.get('mpn', '')
@@ -1076,7 +1079,20 @@ def batch_get_alternative_parts(component_list, progress_callback=None):
         
         try:
             alternatives = []
-            
+            # 新增：获取元器件信息（含停产时间和预警等级）
+            component_info = identify_component(mpn)
+            # 收集停产预警（仅包含有明确预警等级的）
+            if component_info.get("warning_level") in ["红色", "黄色", "绿色"]:
+                eol_warnings.append({
+                    "mpn": mpn,
+                    "name": name,
+                    "manufacturer": component_info.get("manufacturer", "未知厂商"),
+                    "eol_date": component_info.get("eol_date").strftime("%Y-%m-%d") 
+                                if component_info.get("eol_date") else "未知",
+                    "warning_level": component_info.get("warning_level", "未知"),
+                    "status": component_info.get("status", "未知状态")
+                })
+
             for attempt in range(max_retries):
                 try:
                     # 将提示信息移到侧边栏
@@ -1144,7 +1160,11 @@ def batch_get_alternative_parts(component_list, progress_callback=None):
             results[mpn] = {
                 'alternatives': validated_alternatives,
                 'name': name,
-                'description': description
+                'description': description,
+                # 新增：将当前元器件的停产信息也存入结果
+                'eol_date': component_info.get("eol_date").strftime("%Y-%m-%d") 
+                             if component_info.get("eol_date") else "未知",
+                'warning_level': component_info.get("warning_level", "未知")
             }
             
         except Exception as e:
@@ -1183,6 +1203,11 @@ def batch_get_alternative_parts(component_list, progress_callback=None):
                     'error': str(e)
                 }
     
+    # 新增：将停产预警信息存入结果（用特殊键标记，避免与元器件型号冲突）
+    results["__eol_warnings__"] = eol_warnings
+    with st.sidebar.expander("调试：eol_warnings数据", expanded=False):
+        st.write(f"共收集到 {len(eol_warnings)} 条预警")
+        st.write(eol_warnings)
     # 在结束时显示批处理统计信息
     if error_count > 0:
         st.sidebar.warning(f"批量处理完成。共 {total} 个元器件，成功 {success_count} 个，失败 {error_count} 个。")
@@ -1398,7 +1423,7 @@ def chat_with_expert(user_input, history=None):
     2. 正文使用纯文本，换行用<br>或空行分隔
     3. 表格使用标准Markdown格式（|表头|...|）
     4. 禁止使用HTML标签或其他非Markdown语法
-         
+    
 **对话规范**
 - 技术参数必须标注来源（如"参照圣邦微SGM2042手册第8页"）
 - 出现以下情况立即警示：
@@ -1447,61 +1472,111 @@ def format_response(text):
     return text
 
 def identify_component(mpn):
-    """识别元器件信息，新增 PIN 兼容标记、强化校验，支持DeepSeek检索补充"""
+    """识别元器件信息，新增停产时间提取"""
     import re
-    # 1. 基础格式校验（更严格兜底）
+    from datetime import datetime, date  # 新增：用于日期处理
     if not mpn or len(mpn) < 3 or not re.search(r'[A-Za-z0-9]', mpn):
         return {}
 
-    # 2. 调用 Nexar API 获取数据
     variables = {"q": mpn, "limit": 1}
     try:
         data = nexar_client.get_query(QUERY_ALTERNATIVE_PARTS, variables)
         
         if not data:
-            st.sidebar.info(f"Nexar未找到{mpn}，尝试使用DeepSeek检索")
-            return call_deepseek_for_component(mpn)  # 调用DeepSeek检索
+            st.sidebar.info(f"Nexar未找到{mpn}，尝试DeepSeek检索")
+            return call_deepseek_for_component(mpn)
         
         sup_search = data.get("supSearchMpn", {})
         results = sup_search.get("results", [])
         
         if not results:
-            st.sidebar.info(f"Nexar结果为空，尝试使用DeepSeek检索{mpn}")
-            return call_deepseek_for_component(mpn)  # 调用DeepSeek检索
+            st.sidebar.info(f"Nexar结果为空，尝试DeepSeek检索{mpn}")
+            return call_deepseek_for_component(mpn)
         
         part = results[0].get("part", {})
-        # 3. 关键信息完整性校验（必填项更多兜底）
         required_fields = ["mpn", "manufacturer", "specs"]
         if not all(part.get(field) for field in required_fields):
-            st.sidebar.info(f"Nexar数据不完整，尝试使用DeepSeek检索{mpn}")
-            return call_deepseek_for_component(mpn)  # 调用DeepSeek检索
+            st.sidebar.info(f"Nexar数据不完整，尝试DeepSeek检索{mpn}")
+            return call_deepseek_for_component(mpn)
 
-        # 4. 组装基础信息
+        # 基础信息（新增eol_date和warning_level字段）
         component_info = {
             "mpn": part.get("mpn", "未知型号"),
             "manufacturer": part.get("manufacturer", {}).get("name", "未知制造商"),
             "parameters": {},
             "price": "未知",
-            "category": "未知",  # 补充类型字段，前端要用
-            "package": "未知",   # 补充封装字段，前端要用
-            "pin_compatible": "未知",  # 新增 PIN 兼容标记
+            "category": "未知",
+            "package": "未知",
+            "pin_compatible": "未知",
             "status": "未知",
-            "leadTime": "未知"
+            "leadTime": "未知",
+            "eol_date": None,  # 新增：停产日期（datetime对象）
+            "warning_level": "未知"  # 新增：预警等级（红色/黄色/绿色/未知）
         }
 
-        # 5. 提取参数（含类型、封装，尽量从 specs 里解析）
+        # 提取参数（重点提取停产时间）
         specs = part.get("specs", [])
+        eol_date_str = None  # 存储原始停产日期字符串
         for spec in specs:
+            if not isinstance(spec, dict):
+                continue
             attr = spec.get("attribute", {})
-            name = attr.get("name", "").strip()
-            value = spec.get("value", "未知值").strip()
+            if not isinstance(attr, dict):
+                continue
+            name = attr.get("name", "").lower()
+            value = spec.get("value", "").strip()
             component_info["parameters"][name] = value
 
-            # 尝试从参数里解析类型、封装（适配不同 API 返回）
-            if name.lower() == "category" and component_info["category"] == "未知":
+            # 提取封装和类别（原有逻辑）
+            if name == "category" and component_info["category"] == "未知":
                 component_info["category"] = value
-            elif name.lower() == "package" and component_info["package"] == "未知":
+            elif name == "package" and component_info["package"] == "未知":
                 component_info["package"] = value
+
+            # 新增：提取停产日期（匹配关键词）
+            if "end of life date" in name or "eol date" in name or "discontinue date" in name:
+                eol_date_str = value
+            elif "life cycle" in name and ("discontinue" in value.lower() or "eol" in value.lower()):
+                # 若没有明确日期，从生命周期描述中提取年份（如"2025年停产"）
+                year_match = re.search(r'\b20\d{2}\b', value)
+                if year_match:
+                    eol_date_str = f"{year_match.group()}-12-31"  # 默认为年底
+
+        # 解析停产日期并计算预警等级
+        if eol_date_str:
+            try:
+                # 尝试多种日期格式解析
+                date_formats = ["%Y-%m-%d", "%m/%d/%Y", "%Y年%m月%d日", "%Y"]
+                eol_date = None
+                for fmt in date_formats:
+                    try:
+                        eol_date = datetime.strptime(eol_date_str, fmt).date()
+                        break
+                    except ValueError:
+                        continue
+                if eol_date:
+                    component_info["eol_date"] = eol_date
+                    today = date.today()
+                    days_diff = (eol_date - today).days
+
+                    # 计算预警等级（新增核心逻辑）
+                    if days_diff <= 365:  # 1年内
+                        component_info["warning_level"] = "红色"
+                    elif 365 < days_diff <= 730:  # 1-2年
+                        component_info["warning_level"] = "黄色"
+                    elif days_diff > 730:  # 2年以上
+                        component_info["warning_level"] = "绿色"
+                    else:  # 已过期（停产日期在今天之前）
+                        component_info["warning_level"] = "红色"  # 已停产也标红
+            except Exception as e:
+                st.sidebar.warning(f"解析{mpn}停产日期失败: {e}")
+                component_info["warning_level"] = "未知"
+        else:
+            # 若未找到明确停产日期，根据状态推断
+            if component_info["status"] == "已停产":
+                component_info["warning_level"] = "红色"
+            else:
+                component_info["warning_level"] = "未知"
 
         # 6. 提取价格（保持原有逻辑）
         price_info = part.get("medianPrice1000", {})
@@ -1552,8 +1627,21 @@ def identify_component(mpn):
                 component_info["status"] = "新产品"
             elif "NOT RECOMMENDED" in life_cycle_upper:
                 component_info["status"] = "不推荐使用"
+            elif "PHASE OUT" in life_cycle_upper or "DISCONTINUE" in life_cycle_upper:
+                component_info["status"] = "即将停产"  # 新增：补充"即将停产"状态
             else:
                 component_info["status"] = life_cycle
+        else:
+                component_info["status"] = "未知"  # 确保默认值
+
+        # 修复：根据正确的status推断预警等级（原代码中此处依赖未更新的status）
+        if not eol_date_str:  # 若未找到明确日期，根据状态推断
+            if component_info["status"] == "已停产":
+                component_info["warning_level"] = "红色"
+            elif component_info["status"] == "即将停产":
+                component_info["warning_level"] = "黄色"  # 即将停产设为黄色
+            else:
+                component_info["warning_level"] = "未知"
 
         if lead_days:
             component_info["leadTime"] = f"{lead_days} 天"

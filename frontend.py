@@ -977,20 +977,24 @@ def render_ui(get_alternative_parts_func):
         st.markdown("""
         <style>
         .css-1eqt8kt {
-            border: 2px dashed #4285F4 !important;
-            border-radius: 10px !important;
-            padding: 20px !important;
-            background-color: rgba(66, 133, 244, 0.05) !important;
+        border: 2px dashed #4285F4 !important;
+        border-radius: 10px !important;
+        padding: 20px !important;
+        background-color: rgba(66, 133, 244, 0.05) !important;
         }
-        /* 移除上传控件下方的空白区域 */
         .css-18e3th9 {
             padding-top: 0 !important;
             padding-bottom: 0 !important;
         }
-        /* 修复整体元素垂直间距，减少空白区域 */
         .block-container {
             padding-top: 1rem !important;
             padding-bottom: 0 !important;
+        }
+        /* 新增：确保预警区域可见，移除冲突样式 */
+        .eol-warning, .warning-item {
+            display: block !important;
+            visibility: visible !important;
+            opacity: 1 !important;
         }
         </style>
         """, unsafe_allow_html=True)
@@ -1074,16 +1078,77 @@ def render_ui(get_alternative_parts_func):
                         "type": "batch"
                     })
                     
+                    # 批量处理逻辑中，展示预警信息的部分修改为：
+                    if isinstance(batch_results, dict):
+                        eol_warnings = batch_results.pop("__eol_warnings__", [])
+                        # 修复：确保eol_warnings是列表（容错处理）
+                        if not isinstance(eol_warnings, list):
+                            eol_warnings = []
+                        
+                        # 强制显示预警区域（即使为空也提示）
+                        st.markdown("""
+                        <style>
+                        .warning-red { background-color: #fff0f0; border-left: 4px solid #dc3545; }
+                        .warning-yellow { background-color: #fffbf0; border-left: 4px solid #ffc107; }
+                        .warning-green { background-color: #f0fff4; border-left: 4px solid #28a745; }
+                        .warning-item { padding: 10px; margin: 5px 0; border-radius: 4px; }
+                        </style>
+                        """, unsafe_allow_html=True)
+                        
+                        st.subheader("⚠️ 元器件停产预警")
+                        with st.expander(f"共 {len(eol_warnings)} 个元器件有停产风险", expanded=True):
+                            if not eol_warnings:
+                                st.info("未检测到有停产风险的元器件", icon="✅")
+                            else:
+                                red_warnings = [w for w in eol_warnings if w["warning_level"] == "红色"]
+                                yellow_warnings = [w for w in eol_warnings if w["warning_level"] == "黄色"]
+                                green_warnings = [w for w in eol_warnings if w["warning_level"] == "绿色"]
+                                
+                                if red_warnings:
+                                    st.markdown("#### 🔴 红色预警（1年内停产或已停产）")
+                                    for warn in red_warnings:
+                                        st.markdown(f"""
+                                        <div class="warning-item warning-red">
+                                            <strong>{warn['mpn']} ({warn['name']})</strong> - {warn['manufacturer']}<br>
+                                            停产日期: {warn['eol_date']}<br>
+                                            状态: {warn['status']}
+                                        </div>
+                                        """, unsafe_allow_html=True)
+                                
+                                if yellow_warnings:
+                                    st.markdown("#### 🟡 黄色预警（1-2年内停产）")
+                                    for warn in yellow_warnings:
+                                        st.markdown(f"""
+                                        <div class="warning-item warning-yellow">
+                                            <strong>{warn['mpn']} ({warn['name']})</strong> - {warn['manufacturer']}<br>
+                                            停产日期: {warn['eol_date']}
+                                        </div>
+                                        """, unsafe_allow_html=True)
+                                
+                                if green_warnings:
+                                    st.markdown("#### 🟢 绿色预警（2年以上后停产）")
+                                    for warn in green_warnings:
+                                        st.markdown(f"""
+                                        <div class="warning-item warning-green">
+                                            <strong>{warn['mpn']} ({warn['name']})</strong> - {warn['manufacturer']}<br>
+                                            停产日期: {warn['eol_date']}
+                                        </div>
+                                        """, unsafe_allow_html=True)
                     # 直接显示详细的替代方案结果，不使用摘要表格
                     st.subheader("批量查询结果")
                     
                     # 直接显示详细替代方案，不使用expander
                     for mpn, result_info in batch_results.items():
+                        # 跳过可能的残留特殊键（如果有的话）
+                        if mpn.startswith("__"):
+                            continue
                         alts = result_info.get('alternatives', [])
                         name = result_info.get('name', '')
                         
-                        # 显示每个元器件的标题
-                        st.markdown(f"### {mpn} ({name})")
+                        # 显示每个元器件的标题（新增显示预警等级）
+                        warning_level = result_info.get('warning_level', '未知')
+                        level_tag = "🔴" if warning_level == "红色" else "🟡" if warning_level == "黄色" else "🟢" if warning_level == "绿色" else ""
+                        st.markdown(f"### {mpn} ({name}) {level_tag}")
                         
                         # 使用与单个查询相同的display_search_results函数来显示结果
                         if alts:
