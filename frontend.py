@@ -806,6 +806,50 @@ def render_ui(get_alternative_parts_func):
                     padding-top: 10px !important;
                     padding-bottom: 10px !important;
                 }
+                /* 新增：统一Markdown标题样式 */
+                .stMarkdown h1,  /* 一级标题 */
+                .stMarkdown h2,  /* 二级标题 */
+                .stMarkdown h3,  /* 三级标题 */
+                .stMarkdown h4 { /* 四级标题 */
+                    font-family: "Microsoft YaHei", Arial, sans-serif !important;
+                    font-weight: bold !important;
+                    margin-top: 1.2rem !important;
+                    margin-bottom: 0.8rem !important;
+                }
+                
+                /* 标题字号分层 */
+                .stMarkdown h1 { font-size: 1.8rem !important; }
+                .stMarkdown h2 { font-size: 1.5rem !important; }
+                .stMarkdown h3 { font-size: 1.3rem !important; }
+                .stMarkdown h4 { font-size: 1.1rem !important; }
+                
+                /* 新增：统一Markdown正文样式 */
+                .stMarkdown p,
+                .stMarkdown ul,
+                .stMarkdown ol,
+                .stMarkdown table {
+                    font-family: "Microsoft YaHei", Arial, sans-serif !important;
+                    font-size: 1rem !important;  /* 正文统一16px */
+                    line-height: 1.6 !important;  /* 行高1.6倍，增强可读性 */
+                    color: #333 !important;       /* 正文颜色统一深灰 */
+                    margin-top: 0.5rem !important;
+                    margin-bottom: 0.5rem !important;
+                }
+                
+                /* 表格样式优化（Markdown表格） */
+                .stMarkdown table {
+                    border-collapse: collapse !important;
+                    width: 100% !important;
+                }
+                .stMarkdown th,
+                .stMarkdown td {
+                    border: 1px solid #ddd !important;
+                    padding: 8px 12px !important;
+                }
+                .stMarkdown th {
+                    background-color: #f5f5f5 !important;
+                    font-weight: bold !important;
+                }
                 </style>
                 """, unsafe_allow_html=True)
                 
@@ -905,7 +949,7 @@ def render_ui(get_alternative_parts_func):
                 st.markdown("<hr style='margin: 25px 0 15px 0;'>", unsafe_allow_html=True)
                 
                 # 常见问题示例部分放在最后
-                st.subheader("常见问题示例")
+                st.subheader("查询示例")
                 
                 # 添加CSS样式让常见问题示例更加美观，去掉复制按钮
                 st.markdown("""
