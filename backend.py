@@ -239,30 +239,6 @@ def get_nexar_alternatives(mpn: str, limit: int = 10):
             # 只在侧边栏显示错误信息，而不在主界面显示
             st.sidebar.info(f"Nexar API 未能为 '{mpn}' 找到替代元器件")
             
-            # 创建一个假数据用于测试其他部分的功能
-            if st.session_state.get("use_dummy_data", False):
-                st.sidebar.info("使用测试数据继续查询")
-                alternative_parts = [
-                    {
-                        "name": f"类似元件: {mpn}替代品1",
-                        "mpn": f"{mpn}_ALT1",
-                        "manufacturer": "测试制造商",
-                        "price": "9.99 USD",
-                        "status": "量产中",
-                        "leadTime": "14 天",
-                        "octopartUrl": "https://www.octopart.com"
-                    },
-                    {
-                        "name": f"类似元件: {mpn}替代品2",
-                        "mpn": f"{mpn}_ALT2",
-                        "manufacturer": "测试制造商2",
-                        "price": "12.50 CNY",
-                        "status": "新产品",
-                        "leadTime": "30 天",
-                        "octopartUrl": "https://www.octopart.com"
-                    }
-                ]
-            
         return alternative_parts
         
     except Exception as e:
@@ -742,7 +718,7 @@ def get_alternative_parts(part_number):
        c. 预估剩余生命周期（例如：预计2030年前持续供货）
        d. 标明是否有长期供货计划或EOL（生命周期终止）通知
     10. 重要：准确判断每个替代方案是否与原始元器件为"pin-to-pin替代"，必须满足以下所有条件才能标记为pin兼容:
-        a. 物理尺寸和封装与原元器件相同，引脚排列和间距一致，可以在相同PCB焊盘位置安装
+        a. 如果是标准封装，封装与原元器件相同就满足条件a。或者非标准封装，物理尺寸公差在1mm以内，引脚排列和间距一致，可以在相同PCB焊盘位置安装
         b. 所有引脚的功能和编号与原元器件完全匹配
         c. 电气特性（电压/电流/时序等）与原元器件在合理范围内兼容
         d. 无需对PCB进行任何修改（包括布线、跳线等）就能替换使用
@@ -830,9 +806,18 @@ def get_alternative_parts(part_number):
                - 若是传感器：提供测量范围、精度、接口类型
                - 其他类型提供对应的关键参数
             7. 在每个推荐方案中明确标注是"国产"还是"进口"产品
+                a. 优先根据品牌判断（如TI/ST/ADI为进口；兆易创新/圣邦微为国产）
+                b. 若品牌未知，可根据型号前缀辅助判断（如GDxxx为兆易创新国产；STxxx为意法半导体进口）
+                c. 不确定的情况必须标记为"进口"，禁止猜测
             8. 提供产品官网链接（若无真实链接，可提供示例链接，如 https://www.example.com/datasheet）
             9. 推荐的型号不能与输入型号 {part_number} 相同
-            10. 必须严格返回以下 JSON 格式的结果，不允许添加任何额外说明、Markdown 格式或代码块标记，直接返回裸 JSON：
+            10.重要：准确判断每个替代方案是否与原始元器件为"pin-to-pin替代"，必须满足以下所有条件才能标记为pin兼容:
+                    a. 如果是标准封装，封装与原元器件相同就满足条件a。或者非标准封装，物理尺寸公差在1mm以内，引脚排列和间距一致，可以在相同PCB焊盘位置安装
+                    b. 所有引脚的功能和编号与原元器件完全匹配
+                    c. 电气特性（电压/电流/时序等）与原元器件在合理范围内兼容
+                    d. 无需对PCB进行任何修改（包括布线、跳线等）就能替换使用
+                    e. 如果以上任何一点不符合，或者无法确定，则标记为"非Pin兼容"
+            11. 必须严格返回以下 JSON 格式的结果，不允许添加任何额外说明、Markdown 格式或代码块标记，直接返回裸 JSON：
             [
                 {{"model": "型号1", "brand": "品牌1", "category": "类别1", "package": "封装1", "parameters": "参数1", "type": "国产/进口", "datasheet": "链接1"}},
                 {{"model": "型号2", "brand": "品牌2", "category": "类别2", "package": "封装2", "parameters": "参数2", "type": "国产/进口", "datasheet": "链接2"}}
@@ -1319,6 +1304,9 @@ def get_alternatives_direct(mpn, name="", description=""):
        - 若是传感器：提供测量范围、精度、接口类型
        - 其他类型提供对应的关键参数
     7. 在每个推荐方案中明确标注是"国产"还是"进口"产品
+        a. 优先根据品牌判断（如TI/ST/ADI为进口；兆易创新/圣邦微为国产）
+        b. 若品牌未知，可根据型号前缀辅助判断（如GDxxx为兆易创新国产；STxxx为意法半导体进口）
+        c. 不确定的情况必须标记为"进口"，禁止猜测
     8. 提供产品官网链接（若无真实链接，可提供示例链接）
     9. 推荐的型号不能与输入型号 {mpn} 相同
     10. 必须提供价格估算，价格必须包含货币符号：
@@ -1333,6 +1321,12 @@ def get_alternatives_direct(mpn, name="", description=""):
     ]
     12. 每个推荐项必须包含 "model"、"brand"、"category"、"package"、"parameters"、"type"、"datasheet"和"price"八个字段
     13. 如果无法找到合适的替代方案，返回空的 JSON 数组：[]
+    14.重要：准确判断每个替代方案是否与原始元器件为"pin-to-pin替代"，必须满足以下所有条件才能标记为pin兼容:
+                    a. 如果是标准封装，封装与原元器件相同就满足条件a。或者非标准封装，物理尺寸公差在1mm以内，引脚排列和间距一致，可以在相同PCB焊盘位置安装
+                    b. 所有引脚的功能和编号与原元器件完全匹配
+                    c. 电气特性（电压/电流/时序等）与原元器件在合理范围内兼容
+                    d. 无需对PCB进行任何修改（包括布线、跳线等）就能替换使用
+                    e. 如果以上任何一点不符合，或者无法确定，则标记为"非Pin兼容"
     """
     
     try:
@@ -1655,12 +1649,11 @@ def identify_component(mpn):
 
         # 6. 提取价格（保持原有逻辑）
         price_info = part.get("medianPrice1000", {})
-        # 在访问price_info之前检查是否为None
-        if price_info is not None:
-            price_val = price_info.get("price")
-            currency = price_info.get("currency", "USD")
-        else:
-            price_val = None  # 或者设置一个默认值，如0.0
+        # 增加 price_info 校验
+        if not isinstance(price_info, dict):
+            price_info = {}
+        price_val = price_info.get("price")
+        currency = price_info.get("currency", "USD")
         if price_val:
             component_info["price"] = format_price(price_val, currency)
 

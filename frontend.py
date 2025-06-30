@@ -752,7 +752,7 @@ def render_ui(get_alternative_parts_func):
                                     st.info("没有找到有效参数信息", icon="ℹ️")
                             else:
                                 st.info("没有找到详细参数信息", icon="ℹ️")
-                with st.spinner(f"🔄 正在查询 {part_number} 的国产替代方案..."):                
+                with st.spinner(f"🔄 正在查询 {part_number} 的优选替代方案..."):                
                     recommendations = get_alternative_parts_func(part_number)
                     
                     # 保存到历史记录
@@ -1440,8 +1440,8 @@ def display_search_results(part_number, recommendations):
                 
                 # Pin-to-Pin 兼容性（简化样式，用符号直观展示）
                 pin_to_pin = rec.get('pinToPin', False)
-                pin_symbol = "❌" if pin_to_pin else "✅"
-                st.markdown(f"**兼容：** {pin_symbol} {('非Pin兼容' if pin_to_pin else 'Pin兼容')}", unsafe_allow_html=True)
+                pin_symbol = "✅" if pin_to_pin else "❌"
+                st.markdown(f"**兼容：** {pin_symbol} {('Pin兼容' if pin_to_pin else '非Pin兼容')}", unsafe_allow_html=True)
                 
                 # 国产/进口标签（绿色背景标识国产）
                 type_display = ""
