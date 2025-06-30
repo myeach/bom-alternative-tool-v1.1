@@ -272,16 +272,76 @@ def get_nexar_alternatives(mpn: str, limit: int = 10):
             st.code(traceback.format_exc())
         return []
 
-def is_domestic_brand(model_name):
-    domestic_brands = [
-        "GigaDevice", "兆易创新", "WCH", "沁恒", "Fudan Micro", "复旦微电子",
-        "Zhongying", "中颖电子", "SG Micro", "圣邦微电子", "LD", "LDO", "SG", "SGC",
-        "APM", "AP", "BL", "BYD", "CETC", "CR Micro", "CR", "HuaDa", "HuaHong",
-        "SGM", "BLD", "EUTECH", "EUTECH Micro", "3PEAK", "Chipsea", "Chipown"
-    ]
-    # 更宽松的匹配：检查型号是否以国产品牌的常见前缀开头或包含品牌名
-    return any(model_name.lower().startswith(brand.lower()) for brand in domestic_brands) or \
-           any(brand.lower() in model_name.lower() for brand in domestic_brands)
+def is_domestic_brand(model_name, brand_name=""):
+    """
+    优化产地判断逻辑：优先使用品牌信息，再辅助型号判断
+    :param model_name: 元器件型号
+    :param brand_name: 元器件品牌（优先使用）
+    :return: 是否为国产
+    """
+    # 明确的国产品牌列表（中英文对照，避免歧义）
+    domestic_brands = {
+        # 中文品牌
+        "兆易创新": "GigaDevice",
+        "沁恒": "WCH",
+        "复旦微电子": "Fudan Micro",
+        "中颖电子": "Zhongying Electronics",
+        "圣邦微电子": "SG Micro",
+        "华大半导体": "HuaDa Semiconductor",
+        "华虹": "HuaHong",
+        "士兰微": "Silan Micro",
+        "长电科技": "JCET",
+        "通富微电": "TFME",
+        # 英文品牌（避免与进口品牌混淆）
+        "GigaDevice": "兆易创新",
+        "WCH": "沁恒",
+        "SG Micro": "圣邦微电子",
+        "3PEAK": "思瑞浦",
+        "Chipsea": "芯海科技",
+        "Chipown": "芯朋微"
+    }
+    
+    # 明确的进口品牌列表（排除逻辑）
+    foreign_brands = {
+        "TI": "德州仪器",
+        "ADI": "亚德诺",
+        "ST": "意法半导体",
+        "NXP": "恩智浦",
+        "Microchip": "微芯科技",
+        "Infineon": "英飞凌",
+        "Maxim": "美信",
+        "ON Semiconductor": "安森美"
+    }
+    
+    # 优先使用品牌信息判断（最准确）
+    if brand_name:
+        brand_lower = brand_name.lower()
+        # 检查是否为明确的国产品牌
+        if any(b.lower() in brand_lower for b in domestic_brands.keys()) or \
+           any(b.lower() in brand_lower for b in domestic_brands.values()):
+            return True
+        # 检查是否为明确的进口品牌（排除）
+        if any(b.lower() in brand_lower for b in foreign_brands.keys()) or \
+           any(b.lower() in brand_lower for b in foreign_brands.values()):
+            return False
+    
+    # 品牌信息不足时，辅助使用型号判断（严格匹配前缀）
+    model_lower = model_name.lower()
+    # 国产型号常见前缀（避免模糊匹配）
+    domestic_prefixes = ["gd", "wch", "sg", "ch", "hf", "stc", "xc", "bp"]
+    # 进口型号常见前缀（排除）
+    foreign_prefixes = ["ti", "st", "nxp", "ad", "mc", "atm", "pic", "ir"]
+    
+    # 先检查是否为进口型号前缀（优先级高于国产）
+    if any(model_lower.startswith(prefix) for prefix in foreign_prefixes):
+        return False
+    # 再检查是否为国产型号前缀
+    if any(model_lower.startswith(prefix) for prefix in domestic_prefixes):
+        return True
+    
+    # 最终 fallback：通过品牌名模糊匹配
+    return any(brand.lower() in model_lower or brand.lower() in brand_lower 
+               for brand in domestic_brands.keys() | domestic_brands.values())
 
 def extract_json_content(content, call_type="初次调用"):
     # 检查输入是否为字符串类型
@@ -668,7 +728,10 @@ def get_alternative_parts(part_number):
        - 若是存储器：提供容量、接口类型、读写速度
        - 若是传感器：提供测量范围、精度、接口类型
        - 其他类型提供对应的关键参数
-    7. 在每个推荐方案中明确标注是"国产"还是"进口"产品
+    7. 产地判断必须严格遵循：
+        a. 优先根据品牌判断（如TI/ST/ADI为进口；兆易创新/圣邦微为国产）
+        b. 若品牌未知，可根据型号前缀辅助判断（如GDxxx为兆易创新国产；STxxx为意法半导体进口）
+        c. 不确定的情况必须标记为"进口"，禁止猜测
     8. 提供产品大致价格范围，**必须明确标示货币单位**：
        - 对于人民币价格，使用格式：¥X-¥Y（例如：¥10-¥15）
        - 对于美元价格，使用格式：$X-$Y（例如：$1.5-$2.0）
@@ -731,9 +794,15 @@ def get_alternative_parts(part_number):
                     })
 
         # Step 5: 后处理，识别国产方案
+        # 在Step 5和Step 7的后处理中，传入品牌信息
         for rec in recommendations:
-            if isinstance(rec, dict) and rec.get("type") == "未知" and is_domestic_brand(rec.get("model", "")):
-                rec["type"] = "国产"
+            if isinstance(rec, dict):
+                # 优先使用brand字段判断，而非仅依赖model
+                brand = rec.get("brand", "").strip()
+                model = rec.get("model", "").strip()
+                # 关键修改：传入brand参数
+                if rec.get("type") == "未知":
+                    rec["type"] = "国产" if is_domestic_brand(model, brand) else "进口"
 
         # Step 6: 如果仍然不足 3 个，或缺少国产方案，重新调用 DeepSeek 强调国产优先
         need_second_query = len(recommendations) < 3 or not any(isinstance(rec, dict) and rec.get("type") == "国产" for rec in recommendations)
@@ -862,9 +931,15 @@ def get_alternative_parts(part_number):
                 st.sidebar.info(f"🔍 查找完成，共找到 {len(recommendations)} 个替代方案，其中国产方案 {domestic_count} 个，进口/未知方案 {import_count} 个。")
 
         # Step 7: 再次后处理，识别国产方案
+        # 在Step 5和Step 7的后处理中，传入品牌信息
         for rec in recommendations:
-            if isinstance(rec, dict) and rec.get("type") == "未知" and is_domestic_brand(rec.get("model", "")):
-                rec["type"] = "国产"
+            if isinstance(rec, dict):
+                # 优先使用brand字段判断，而非仅依赖model
+                brand = rec.get("brand", "").strip()
+                model = rec.get("model", "").strip()
+                # 关键修改：传入brand参数
+                if rec.get("type") == "未知":
+                    rec["type"] = "国产" if is_domestic_brand(model, brand) else "进口"
 
         # 确保recommendations是可切片类型并安全执行切片
         try:
