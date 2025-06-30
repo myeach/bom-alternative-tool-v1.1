@@ -1655,8 +1655,12 @@ def identify_component(mpn):
 
         # 6. 提取价格（保持原有逻辑）
         price_info = part.get("medianPrice1000", {})
-        price_val = price_info.get("price")
-        currency = price_info.get("currency", "USD")
+        # 在访问price_info之前检查是否为None
+        if price_info is not None:
+            price_val = price_info.get("price")
+            currency = price_info.get("currency", "USD")
+        else:
+            price_val = None  # 或者设置一个默认值，如0.0
         if price_val:
             component_info["price"] = format_price(price_val, currency)
 
