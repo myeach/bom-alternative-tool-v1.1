@@ -257,7 +257,7 @@ def is_domestic_brand(model_name, brand_name=""):
     """
     # 明确的国产品牌列表（中英文对照，避免歧义）
     domestic_brands = {
-        # 中文品牌
+        # 中国大陆品牌
         "兆易创新": "GigaDevice",
         "沁恒": "WCH",
         "复旦微电子": "Fudan Micro",
@@ -268,13 +268,29 @@ def is_domestic_brand(model_name, brand_name=""):
         "士兰微": "Silan Micro",
         "长电科技": "JCET",
         "通富微电": "TFME",
+        # 台湾地区品牌（视为国产）
+        "台积电": "TSMC",
+        "联发科": "MediaTek",
+        "台达电子": "Delta Electronics",
+        "友达光电": "AUO",
+        "华硕": "ASUS",
+        "微星": "MSI",
+        "奇景光电": "Himax",
+        "联咏科技": "Novatek",
+        "瑞昱半导体": "Realtek",
+        "立锜科技": "Richtek",
         # 英文品牌（避免与进口品牌混淆）
         "GigaDevice": "兆易创新",
         "WCH": "沁恒",
         "SG Micro": "圣邦微电子",
         "3PEAK": "思瑞浦",
         "Chipsea": "芯海科技",
-        "Chipown": "芯朋微"
+        "Chipown": "芯朋微",
+        # 台湾地区品牌英文（补充）
+        "TSMC": "台积电",
+        "MediaTek": "联发科",
+        "Delta": "台达电子",
+        "Realtek": "瑞昱半导体"
     }
     
     # 明确的进口品牌列表（排除逻辑）
@@ -304,7 +320,10 @@ def is_domestic_brand(model_name, brand_name=""):
     # 品牌信息不足时，辅助使用型号判断（严格匹配前缀）
     model_lower = model_name.lower()
     # 国产型号常见前缀（避免模糊匹配）
-    domestic_prefixes = ["gd", "wch", "sg", "ch", "hf", "stc", "xc", "bp"]
+    domestic_prefixes = ["gd", "wch", "sg", "ch", "hf", "stc", "xc", "bp",
+                         # 台湾地区品牌前缀
+                        "mtk", "rtk", "richtek", "novatek", "himax"  # 联发科/瑞昱/立锜/联咏/奇景光电等
+                         ]
     # 进口型号常见前缀（排除）
     foreign_prefixes = ["ti", "st", "nxp", "ad", "mc", "atm", "pic", "ir"]
     
@@ -1104,29 +1123,175 @@ def process_bom_file(uploaded_file):
             os.unlink(tmp_filepath)
 
 def batch_get_alternative_parts(component_list, progress_callback=None):
-    """批量获取替代元器件方案
+    """批量评估元器件停产风险（仅判断风险，不查询替代方案）
     
     Args:
         component_list: 包含元器件信息的列表
         progress_callback: 进度回调函数
         
     Returns:
-        批量查询结果字典
+        批量风险评估结果字典
     """
     # 初始化结果字典
     results = {}
     total = len(component_list)
-    
     error_count = 0
     success_count = 0
-    
-    # 设置最大重试次数
-    max_retries = 3
-    
-     # 新增：收集所有元器件的停产预警信息
-    eol_warnings = []  # 格式: [{"mpn": "...", "name": "...", "eol_date": "...", "warning_level": "...", ...}, ...]
 
-    # 遍历每个元器件
+    # 风险等级定义（新划分标准）
+    RISK_LEVELS = {
+        "HIGH": "红色",    # 已停产或2年以内停产（高风险）
+        "LOW": "黄色",     # 2-4年停产（低风险）
+        "SAFE": "绿色",    # 4年以上停产（无风险）
+        "UNKNOWN": "未知"  # 未检测出停产时间（灰色）
+    }
+
+    def assess_risk_with_deepseek(mpn, name, description):
+        """调用DeepSeek评估元器件停产风险，按新标准划分等级"""
+        from datetime import datetime, date
+        
+        # 构建提示词（要求返回JSON格式）
+        prompt = f"""
+        按以下规则评估元器件"{mpn}（{name}）"的停产风险：
+        优先判断：允许评估元器件的停产风险等级
+        若仍然在量产，但是预计会在几年内逐步淘汰，封装已被TI列为"Legacy Packaging"（传统封装），则：status=未停产, eol_year=“当前年份”+“4年”
+        若仍然在量产，且出货量充足，并且暂时无停产计划，则：status=未停产, eol_year=无计划
+        若有较大风险，已经有明确的停产计划，或者即将有停产安排，则：status=未停产, eol_year=当前年份
+        1. 若已停产：status=已停产
+        2. 若未停产但有停产计划：status=未停产, eol_year=具体年份
+        3. 若正常生产无停产计划：status=未停产, eol_year=无计划
+        
+        返回严格的JSON格式（禁止包含其他文本）：
+        {{
+            "status": "已停产|未停产",
+            "eol_year": "2025|无计划|未知",
+            "description": "详细状态说明"
+        }}
+        """
+        
+        try:
+            # 调用DeepSeek
+            response = deepseek_client.chat.completions.create(
+                model="deepseek-chat",
+                messages=[
+                    {"role": "system", "content": "你是电子元器件领域专家，擅长评估产品生命周期。请严格按JSON格式返回，不添加任何额外内容。"},
+                    {"role": "user", "content": prompt}
+                ],
+                stream=False,
+                max_tokens=200
+            )
+            response_text = response.choices[0].message.content.strip()
+            
+            # 调试：记录原始响应（仅开发阶段使用）
+            if st.session_state.get("debug_mode", False):
+                st.write(f"原始响应（{mpn}）：", response_text)
+            
+            # 增强版JSON解析逻辑
+            risk_data = None
+            try:
+                # 尝试直接解析
+                risk_data = json.loads(response_text)
+                
+            except json.JSONDecodeError as e:
+                # 尝试提取JSON部分（处理可能包含额外文本的情况）
+                try:
+                    # 提取第一个大括号开始到最后一个大括号结束的部分
+                    start_idx = response_text.find("{")
+                    end_idx = response_text.rfind("}")
+                    
+                    if start_idx >= 0 and end_idx > start_idx:
+                        json_str = response_text[start_idx:end_idx+1]
+                        risk_data = json.loads(json_str)
+                    else:
+                        # 尝试更宽松的解析（移除前缀文本）
+                        lines = response_text.split('\n')
+                        json_lines = []
+                        in_json = False
+                        
+                        for line in lines:
+                            line = line.strip()
+                            if line.startswith("{"):
+                                in_json = True
+                            if in_json:
+                                json_lines.append(line)
+                            if line.endswith("}"):
+                                break
+                        
+                        if json_lines:
+                            json_str = '\n'.join(json_lines)
+                            risk_data = json.loads(json_str)
+                
+                except Exception as e2:
+                    # 解析失败，记录错误信息
+                    if st.session_state.get("debug_mode", False):
+                        st.write(f"JSON解析失败（{mpn}）：", str(e2))
+                    risk_data = None
+            
+            # 验证数据结构
+            if not risk_data or not isinstance(risk_data, dict):
+                status, eol_year, status_desc = "未知", "未知", "响应格式非JSON"
+            else:
+                status = risk_data.get("status", "未知")
+                eol_year = risk_data.get("eol_year", "未知")
+                status_desc = risk_data.get("description", "未知")
+                
+                # 验证状态值
+                if status not in ["已停产", "未停产"]:
+                    status = "未知"
+
+            # 计算风险等级（核心逻辑）
+            today = date.today()
+            warning_level = "UNKNOWN"  # 默认未知
+            
+            # 情况1：已停产
+            if status == "已停产":
+                warning_level = "HIGH"
+                eol_year = "已停产"
+            
+            # 情况2：有明确停产年份
+            elif eol_year.isdigit():
+                eol_date = datetime.strptime(f"{eol_year}-12-31", "%Y-%m-%d").date()
+                months_diff = (eol_date - today).days // 30  # 转换为月
+                
+                if months_diff <= 12:  # 1年内
+                    warning_level = "HIGH"
+                elif 12 < months_diff <= 60:  # 1-5年
+                    warning_level = "LOW"
+                else:  # 5年以上
+                    warning_level = "SAFE"
+                    
+            # 情况3：无停产计划
+            elif eol_year == "无计划":
+                warning_level = "SAFE"
+                eol_year = "无停产计划"
+            
+            
+            # 转换为中文等级
+            chinese_level = RISK_LEVELS.get(warning_level, "未知")
+            
+            return {
+                "warning_level": chinese_level,
+                "eol_date": eol_year,
+                "status": status_desc,
+                "raw_status": status,
+                "debug_info": {  # 仅用于调试，可在生产环境移除
+                    "original_response": response_text if st.session_state.get("debug_mode", False) else None
+                }
+            }
+            
+        except Exception as e:
+            st.error(f"DeepSeek风险评估失败（{mpn}）：{str(e)}")
+            return {
+                "warning_level": "未知",
+                "eol_date": "未知",
+                "status": f"评估失败：{str(e)}",
+                "raw_status": "错误"
+            }
+
+    # 仅进行风险评估（无替代方案查询）
+    st.sidebar.info("正在评估所有元器件的停产风险...")
+    eol_warnings = []
+    
     for idx, component in enumerate(component_list):
         mpn = component.get('mpn', '')
         name = component.get('name', '')
@@ -1135,145 +1300,59 @@ def batch_get_alternative_parts(component_list, progress_callback=None):
         # 更新进度
         progress = (idx + 1) / total
         if progress_callback:
-            progress_callback(progress, f"处理第 {idx+1}/{total} 个元器件: {mpn}")
+            progress_callback(progress, f"评估第 {idx+1}/{total} 个元器件: {mpn}")
         
         try:
-            alternatives = []
-            # 新增：获取元器件信息（含停产时间和预警等级）
-            component_info = identify_component(mpn)
-            # 收集停产预警（仅包含有明确预警等级的）
-            if component_info.get("warning_level") in ["红色", "黄色", "绿色"]:
-                eol_warnings.append({
-                    "mpn": mpn,
-                    "name": name,
-                    "manufacturer": component_info.get("manufacturer", "未知厂商"),
-                    "eol_date": component_info.get("eol_date").strftime("%Y-%m-%d") 
-                                if component_info.get("eol_date") else "未知",
-                    "warning_level": component_info.get("warning_level", "未知"),
-                    "status": component_info.get("status", "未知状态")
-                })
-
-            for attempt in range(max_retries):
-                try:
-                    # 将提示信息移到侧边栏
-                    st.sidebar.info(f"元器件 {mpn} 第 {attempt+1} 次查询中...")
-                    alternatives = get_alternatives_direct(mpn, name, description)
-                    if alternatives:  # 如果获取到结果，跳出重试循环
-                        st.sidebar.success(f"元器件 {mpn} 查询成功，找到 {len(alternatives)} 个替代方案")
-                        break
-                    else:
-                        st.sidebar.warning(f"元器件 {mpn} 第 {attempt+1} 次查询未返回结果，将重试...")
-                except Exception as retry_error:
-                    st.sidebar.warning(f"元器件 {mpn} 第 {attempt+1} 次查询失败: {str(retry_error)}")
-                    if attempt == max_retries - 1:  # 最后一次尝试失败
-                        raise  # 重新抛出异常给外层处理
+            # 获取风险信息
+            risk_info = assess_risk_with_deepseek(mpn, name, description)
             
-            # 如果所有尝试都失败但启用了测试数据选项
-            if not alternatives and st.session_state.get("use_dummy_data", False):
-                st.sidebar.info(f"元器件 {mpn} 查询失败，使用测试数据")
-                alternatives = [
-                    {
-                        "model": f"{mpn}_替代1",
-                        "brand": "测试品牌",
-                        "category": "测试类别",
-                        "package": "测试封装",
-                        "parameters": "测试参数数据",
-                        "type": "国产",
-                        "price": "¥8-¥15",
-                        "status": "量产中",
-                        "leadTime": "4-6周",
-                        "pinToPin": True,
-                        "compatibility": "完全兼容",
-                        "datasheet": "https://www.example.com/datasheet"
-                    },
-                    {
-                        "model": f"{mpn}_替代2",
-                        "brand": "测试品牌2",
-                        "category": "测试类别",
-                        "package": "测试封装",
-                        "parameters": "测试参数数据",
-                        "type": "进口",
-                        "price": "$1.5-$3.0",
-                        "status": "量产中",
-                        "leadTime": "6-8周",
-                        "pinToPin": False,
-                        "compatibility": "需要修改PCB",
-                        "datasheet": "https://www.example.com/datasheet"
-                    }
-                ]
+            # 收集预警信息
+            risk_desc_map = {
+                "红色": "高风险（已停产或1年以内停产）",
+                "黄色": "低风险（1-5年停产）",
+                "绿色": "无风险（5年以上停产）",
+                "未知": "未知风险（未检测出停产信息）"
+            }
+            risk_description = risk_desc_map.get(risk_info["warning_level"], "未知风险")
             
-            # 验证每个替代方案是否包含必要字段
-            validated_alternatives = []
-            for alt in alternatives:
-                if isinstance(alt, dict):
-                    # 确保所有必要字段存在
-                    if "datasheet" not in alt or not alt["datasheet"]:
-                        alt["datasheet"] = "https://www.example.com/datasheet"
-                    validated_alternatives.append(alt)
+            eol_warnings.append({
+                "mpn": mpn,
+                "name": name,
+                "eol_date": risk_info["eol_date"],
+                "warning_level": risk_info["warning_level"],
+                "status": risk_info["status"],
+                "risk_description": risk_description
+            })
             
-            # 更新统计
-            if validated_alternatives:
-                success_count += 1
-            else:
-                error_count += 1
-                
+            # 保存结果（不包含替代方案）
             results[mpn] = {
-                'alternatives': validated_alternatives,
                 'name': name,
                 'description': description,
-                # 新增：将当前元器件的停产信息也存入结果
-                'eol_date': component_info.get("eol_date").strftime("%Y-%m-%d") 
-                             if component_info.get("eol_date") else "未知",
-                'warning_level': component_info.get("warning_level", "未知")
+                'eol_date': risk_info["eol_date"],
+                'warning_level': risk_info["warning_level"],
+                'status': risk_info["status"],
+                'risk_description': risk_description
             }
+            success_count += 1
             
         except Exception as e:
-            # 捕获每个元器件的处理错误，避免一个错误导致整个批处理失败
             error_count += 1
             st.error(f"处理元器件 {mpn} 时出错: {e}")
-            
-            # 使用测试数据
-            if st.session_state.get("use_dummy_data", True):  # 默认启用测试数据
-                st.info(f"元器件 {mpn} 处理出错，使用测试数据")
-                results[mpn] = {
-                    'alternatives': [
-                        {
-                            "model": f"{mpn}_替代1",
-                            "brand": "测试品牌",
-                            "category": "测试类别",
-                            "package": "测试封装",
-                            "parameters": "测试参数数据",
-                            "type": "国产",
-                            "price": "¥8-¥15",
-                            "status": "量产中",
-                            "leadTime": "4-6周",
-                            "pinToPin": True,
-                            "compatibility": "完全兼容",
-                            "datasheet": "https://www.example.com/datasheet"
-                        }
-                    ],
-                    'name': name,
-                    'description': description
-                }
-            else:
-                results[mpn] = {
-                    'alternatives': [],
-                    'name': name,
-                    'description': description,
-                    'error': str(e)
-                }
+            results[mpn] = {
+                'name': name,
+                'description': description,
+                'eol_date': "未知",
+                'warning_level': "未知",
+                'status': f"处理错误: {str(e)}",
+                'risk_description': "处理异常"
+            }
     
-    # 新增：将停产预警信息存入结果（用特殊键标记，避免与元器件型号冲突）
+    # 保存风险预警信息
     results["__eol_warnings__"] = eol_warnings
-    with st.sidebar.expander("调试：eol_warnings数据", expanded=False):
-        st.write(f"共收集到 {len(eol_warnings)} 条预警")
-        st.write(eol_warnings)
-    # 在结束时显示批处理统计信息
-    if error_count > 0:
-        st.sidebar.warning(f"批量处理完成。共 {total} 个元器件，成功 {success_count} 个，失败 {error_count} 个。")
-    else:
-        st.sidebar.success(f"批量处理完成。成功处理所有 {total} 个元器件。")
+    with st.sidebar.expander("调试：风险评估结果", expanded=False):
+        st.write(f"共评估 {len(eol_warnings)} 个元器件，成功 {success_count} 个，失败 {error_count} 个")
     
+    st.sidebar.success(f"批量评估完成：共 {total} 个元器件")
     return results
 
 def get_alternatives_direct(mpn, name="", description=""):
@@ -1657,30 +1736,6 @@ def identify_component(mpn):
         if price_val:
             component_info["price"] = format_price(price_val, currency)
 
-        # 7. 强化PIN兼容识别逻辑（支持更多参数名称和格式）
-        pin_compatible = "未知"
-        for spec in specs:
-            attr_name = spec.get("attribute", {}).get("name", "").lower()
-            attr_value = spec.get("value", "").lower()
-            
-            # 支持多种PIN兼容相关参数名称
-            if any(keyword in attr_name for keyword in ["pin compat", "pin to pin", "pin compatible", "pincompat"]):
-                if "yes" in attr_value or "true" in attr_value or "兼容" in attr_value:
-                    pin_compatible = "是"
-                elif "no" in attr_value or "false" in attr_value or "不兼容" in attr_value:
-                    pin_compatible = "否"
-                else:
-                    pin_compatible = attr_value
-                break
-                
-            # 从封装信息间接判断（如果封装相同，可能PIN兼容）
-            if attr_name == "package":
-                # 这里需要原器件的封装信息进行对比，假设原器件封装已知
-                original_package = "需要从上下文中获取原器件封装"
-                if attr_value == original_package:
-                    pin_compatible = "可能兼容（封装相同）"
-        
-        component_info["pin_compatible"] = pin_compatible
 
         # 8. 生命周期、交期（保持原有逻辑）
         life_cycle = part.get("lifeCycle", "未知")

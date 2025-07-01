@@ -1032,229 +1032,182 @@ def render_ui(get_alternative_parts_func):
                 # 从backend导入函数
                 import sys
                 import os
-                
-                # 确保backend模块可以被导入
                 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-                
-                # 现在导入所需函数
                 from backend import process_bom_file, batch_get_alternative_parts
                 
-                # 处理BOM文件，获取更丰富的元器件信息
+                # 处理BOM文件，获取元器件信息
                 components, columns_info = process_bom_file(uploaded_file)
                 
                 if not components:
                     st.error("⚠️ 无法从BOM文件中识别元器件型号！")
                 else:
-                    # 将识别信息移至侧边栏
+                    # 显示识别信息
                     st.sidebar.info(f"已识别 {len(components)} 个不同的元器件")
                     st.sidebar.success(f"识别到的关键列: 型号列({columns_info.get('mpn_column', '未识别')}), "
-                              f"名称列({columns_info.get('name_column', '未识别')}), "
-                              f"描述列({columns_info.get('description_column', '未识别')})")
+                            f"名称列({columns_info.get('name_column', '未识别')})")
                     
-                    # 创建进度条
+                    # 进度条
                     progress_bar = st.progress(0)
                     status_text = st.empty()
-                    
-                    # 定义进度回调函数
                     def update_progress(progress, text):
                         progress_bar.progress(progress)
                         status_text.text(text)
                     
-                    # 批量查询
-                    with st.spinner("批量查询中，请稍候..."):
+                    # 批量风险评估（不查询替代方案）
+                    with st.spinner("正在评估所有元器件的停产风险..."):
                         batch_results = batch_get_alternative_parts(components, update_progress)
                     
-                    # 完成进度
                     progress_bar.progress(1.0)
-                    # 隐藏处理完成提示
                     status_text.empty()
                     
                     # 保存到历史记录
                     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     st.session_state.search_history.append({
                         "timestamp": timestamp,
-                        "part_number": f"批量查询({len(components)}个)",
+                        "part_number": f"批量风险评估({len(components)}个)",
                         "batch_results": batch_results,
-                        "type": "batch"
+                        "type": "risk_assessment"
                     })
                     
-                    # 批量处理逻辑中，展示预警信息的部分修改为：
-                    if isinstance(batch_results, dict):
-                        eol_warnings = batch_results.pop("__eol_warnings__", [])
-                        # 修复：确保eol_warnings是列表（容错处理）
-                        if not isinstance(eol_warnings, list):
-                            eol_warnings = []
-                        
-                        # 强制显示预警区域（即使为空也提示）
-                        st.markdown("""
-                        <style>
-                        .warning-red { background-color: #fff0f0; border-left: 4px solid #dc3545; }
-                        .warning-yellow { background-color: #fffbf0; border-left: 4px solid #ffc107; }
-                        .warning-green { background-color: #f0fff4; border-left: 4px solid #28a745; }
-                        .warning-item { padding: 10px; margin: 5px 0; border-radius: 4px; }
-                        </style>
-                        """, unsafe_allow_html=True)
-                        
-                        st.subheader("⚠️ 元器件停产预警")
-                        with st.expander(f"共 {len(eol_warnings)} 个元器件有停产风险", expanded=True):
-                            if not eol_warnings:
-                                st.info("未检测到有停产风险的元器件", icon="✅")
-                            else:
-                                red_warnings = [w for w in eol_warnings if w["warning_level"] == "红色"]
-                                yellow_warnings = [w for w in eol_warnings if w["warning_level"] == "黄色"]
-                                green_warnings = [w for w in eol_warnings if w["warning_level"] == "绿色"]
-                                
-                                if red_warnings:
-                                    st.markdown("#### 🔴 红色预警（1年内停产或已停产）")
-                                    for warn in red_warnings:
-                                        st.markdown(f"""
-                                        <div class="warning-item warning-red">
-                                            <strong>{warn['mpn']} ({warn['name']})</strong> - {warn['manufacturer']}<br>
-                                            停产日期: {warn['eol_date']}<br>
-                                            状态: {warn['status']}
-                                        </div>
-                                        """, unsafe_allow_html=True)
-                                
-                                if yellow_warnings:
-                                    st.markdown("#### 🟡 黄色预警（1-2年内停产）")
-                                    for warn in yellow_warnings:
-                                        st.markdown(f"""
-                                        <div class="warning-item warning-yellow">
-                                            <strong>{warn['mpn']} ({warn['name']})</strong> - {warn['manufacturer']}<br>
-                                            停产日期: {warn['eol_date']}
-                                        </div>
-                                        """, unsafe_allow_html=True)
-                                
-                                if green_warnings:
-                                    st.markdown("#### 🟢 绿色预警（2年以上后停产）")
-                                    for warn in green_warnings:
-                                        st.markdown(f"""
-                                        <div class="warning-item warning-green">
-                                            <strong>{warn['mpn']} ({warn['name']})</strong> - {warn['manufacturer']}<br>
-                                            停产日期: {warn['eol_date']}
-                                        </div>
-                                        """, unsafe_allow_html=True)
-                    # 直接显示详细的替代方案结果，不使用摘要表格
-                    st.subheader("批量查询结果")
+                    # 提取风险预警信息
+                    eol_warnings = batch_results.pop("__eol_warnings__", [])
+                    if not isinstance(eol_warnings, list):
+                        eol_warnings = []
                     
-                    # 直接显示详细替代方案，不使用expander
-                    for mpn, result_info in batch_results.items():
-                        # 跳过可能的残留特殊键（如果有的话）
-                        if mpn.startswith("__"):
-                            continue
-                        alts = result_info.get('alternatives', [])
-                        name = result_info.get('name', '')
-                        
-                        # 显示每个元器件的标题（新增显示预警等级）
-                        warning_level = result_info.get('warning_level', '未知')
-                        level_tag = "🔴" if warning_level == "红色" else "🟡" if warning_level == "黄色" else "🟢" if warning_level == "绿色" else ""
-                        st.markdown(f"### {mpn} ({name}) {level_tag}")
-                        
-                        # 使用与单个查询相同的display_search_results函数来显示结果
-                        if alts:
-                            display_search_results(mpn, alts)
-                        else:
-                            st.info("未找到替代方案")
-                        
-                        st.markdown("---")
+                    # 1. 显示风险预警区域（按新等级划分）
+                    st.subheader("⚠️ 元器件停产风险评估结果")
+                    st.markdown("""
+                    <style>
+                        .risk-red { background: #fff0f0; border-left: 4px solid #dc3545; }
+                        .risk-yellow { background: #fffbf0; border-left: 4px solid #ffc107; }
+                        .risk-green { background: #f0fff4; border-left: 4px solid #28a745; }
+                        .risk-unknown { background: #f0f0f0; border-left: 4px solid #6c757d; }
+                        .risk-item { padding: 12px; margin: 8px 0; border-radius: 4px; }
+                    </style>
+                    """, unsafe_allow_html=True)
                     
-                    # 提供下载结果的选项
-                    st.subheader("📊 下载查询结果")
+                    with st.expander(f"共 {len(eol_warnings)} 个元器件风险评估结果", expanded=True):
+                        # 按新风险等级分组显示
+                        red_warnings = [w for w in eol_warnings if w["warning_level"] == "红色"]
+                        yellow_warnings = [w for w in eol_warnings if w["warning_level"] == "黄色"]
+                        green_warnings = [w for w in eol_warnings if w["warning_level"] == "绿色"]
+                        unknown_warnings = [w for w in eol_warnings if w["warning_level"] == "未知"]
+                        
+                        # 红色：高风险
+                        if red_warnings:
+                            st.markdown("#### 🔴 红色预警（高风险：已停产或1年以内停产）")
+                            for w in red_warnings:
+                                st.markdown(f"""
+                                <div class="risk-item risk-red">
+                                    <strong>{w['mpn']}（{w['name']}）</strong><br>
+                                    状态：{w['status']}<br>
+                                    停产日期：{w['eol_date']}<br>
+                                    风险描述：{w['risk_description']}
+                                </div>
+                                """, unsafe_allow_html=True)
+                        
+                        # 黄色：低风险
+                        if yellow_warnings:
+                            st.markdown("#### 🟡 黄色预警（低风险：1-5年停产）")
+                            for w in yellow_warnings:
+                                st.markdown(f"""
+                                <div class="risk-item risk-yellow">
+                                    <strong>{w['mpn']}（{w['name']}）</strong><br>
+                                    状态：{w['status']}<br>
+                                    停产日期：{w['eol_date']}<br>
+                                    风险描述：{w['risk_description']}
+                                </div>
+                                """, unsafe_allow_html=True)
+                        
+                        # 绿色：无风险
+                        if green_warnings:
+                            st.markdown("#### 🟢 绿色预警（无风险：5年以上停产）")
+                            for w in green_warnings:
+                                st.markdown(f"""
+                                <div class="risk-item risk-green">
+                                    <strong>{w['mpn']}（{w['name']}）</strong><br>
+                                    状态：{w['status']}<br>
+                                    停产日期：{w['eol_date']}<br>
+                                    风险描述：{w['risk_description']}
+                                </div>
+                                """, unsafe_allow_html=True)
+                        
+                        # 未知：灰色
+                        if unknown_warnings:
+                            st.markdown("#### 灰色预警（未知风险：未检测出停产时间）")
+                            for w in unknown_warnings:
+                                st.markdown(f"""
+                                <div class="risk-item risk-unknown">
+                                    <strong>{w['mpn']}（{w['name']}）</strong><br>
+                                    状态：{w['status']}<br>
+                                    停产日期：{w['eol_date']}<br>
+                                    风险描述：{w['risk_description']}
+                                </div>
+                                """, unsafe_allow_html=True)
                     
-                    # 将结果转换为可下载的Excel格式
+                    # 确保所有变量都是列表类型
+                    red_warnings = red_warnings or []
+                    yellow_warnings = yellow_warnings or []
+                    green_warnings = green_warnings or []
+                    unknown_warnings = unknown_warnings or []
+                    eol_warnings = eol_warnings or []
+
+                    # 2. 显示统计信息（修复 HTML 和类型错误）
+                    st.info(f"""
+                    📊 风险统计：
+                    - 高风险（红色）：{len(red_warnings)} 个
+                    - 低风险（黄色）：{len(yellow_warnings)} 个
+                    - 无风险（绿色）：{len(green_warnings)} 个
+                    - 未知风险（绿色）：{len(unknown_warnings)} 个
+                    总计：{len(eol_warnings)} 个元器件
+                    """)
+                    # 3. 下载区域（仅包含风险信息）
+                    st.subheader("📊 下载风险评估结果")
+                    
                     result_data = []
-                    
-                    # 遍历所有批量查询结果
                     for mpn, result_info in batch_results.items():
-                        alts = result_info.get('alternatives', [])
-                        name = result_info.get('name', '')
-                        description = result_info.get('description', '')
-                        
-                        # 确保alts是列表类型
-                        if not isinstance(alts, list):
-                            alts = []
-                        
-                        # 如果没有替代方案，添加一个"未找到替代方案"的记录
-                        if not alts:
-                            result_data.append({
-                                "原元器件名称": name,
-                                "原型号": mpn,
-                                "原器件描述": description,
-                                "替代方案序号": "-",
-                                "替代型号": "未找到替代方案",
-                                "替代品牌": "-",
-                                "类别": "-",
-                                "封装": "-",
-                                "类型": "-",
-                                "参数": "-",
-                                "数据手册链接": "-"
-                            })
-                        else:
-                            # 添加找到的替代方案
-                            for i, alt in enumerate(alts, 1):
-                                # 确保alt是字典类型
-                                if not isinstance(alt, dict):
-                                    continue
-                                    
-                                result_data.append({
-                                    "原元器件名称": name,
-                                    "原型号": mpn,
-                                    "原器件描述": description,
-                                    "替代方案序号": i,
-                                    "替代型号": alt.get("model", ""),
-                                    "替代品牌": alt.get("brand", "未知品牌"),
-                                    "类别": alt.get("category", "未知类别"),
-                                    "封装": alt.get("package", "未知封装"),
-                                    "类型": alt.get("type", "未知"),
-                                    "参数": alt.get("parameters", ""),
-                                    "数据手册链接": alt.get("datasheet", "")
-                                })
+                        result_data.append({
+                            "原型号": mpn,
+                            "原名称": result_info.get('name', ''),
+                            "描述": result_info.get('description', ''),
+                            "停产日期": result_info.get('eol_date', '未知'),
+                            "风险等级": result_info.get('warning_level', '未知'),
+                            "风险描述": result_info.get('risk_description', ''),
+                            "状态详情": result_info.get('status', '')
+                        })
                     
-                    # 当有结果数据时，生成并提供下载
                     if result_data:
-                        # 创建DataFrame
                         df_results = pd.DataFrame(result_data)
                         
-                        # 添加两种下载格式选项
-                        col1, col2 = st.columns(2)
-                        
-                        # 创建Excel文件
+                        # Excel下载
                         with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as excel_file:
                             with pd.ExcelWriter(excel_file.name, engine='openpyxl') as writer:
-                                df_results.to_excel(writer, sheet_name='替代方案查询结果', index=False)
-                            
-                            # 读取生成的Excel文件
-                            with open(excel_file.name, 'rb') as f:
-                                excel_data = f.read()
+                                df_results.to_excel(writer, sheet_name='停产风险评估结果', index=False)
+                            excel_data = open(excel_file.name, 'rb').read()
                         
-                        # 创建CSV文件
-                        with tempfile.NamedTemporaryFile(delete=False, suffix='.csv') as csv_file:
-                            df_results.to_csv(csv_file.name, index=False, encoding='utf-8-sig')  # 使用带BOM的UTF-8编码，Excel可以正确识别中文
-                            
-                            # 读取生成的CSV文件
-                            with open(csv_file.name, 'rb') as f:
-                                csv_data = f.read()
+                        # CSV下载
+                        csv_data = df_results.to_csv(index=False, encoding='utf-8-sig').encode()
                         
-                        # 显示两个下载按钮
+                        # 显示下载按钮
+                        col1, col2 = st.columns(2)
                         with col1:
                             st.download_button(
-                                label="📥 下载为Excel文件 (.xlsx)",
+                                "下载Excel",
                                 data=excel_data,
-                                file_name=f"元器件替代方案查询结果_{timestamp.replace(':', '-')}.xlsx",
+                                file_name=f"元器件风险评估结果_{datetime.now().strftime('%Y%m%d')}.xlsx",
                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                 use_container_width=True
                             )
-                        
                         with col2:
                             st.download_button(
-                                label="📥 下载为CSV文件 (.csv)",
+                                "下载CSV",
                                 data=csv_data,
-                                file_name=f"元器件替代方案查询结果_{timestamp.replace(':', '-')}.csv",
+                                file_name=f"元器件风险评估结果_{datetime.now().strftime('%Y%m%d')}.csv",
                                 mime="text/csv",
                                 use_container_width=True
                             )
                     else:
-                        st.warning("⚠️ 没有查询到任何替代方案，无法生成下载文件")
+                        st.warning("无风险评估数据可下载")
         else:
             # 空白展示区，不显示任何提示或装饰
             pass
@@ -1291,7 +1244,7 @@ def render_ui(get_alternative_parts_func):
                         <div style="margin-top: 5px; font-size: 0.9em;">
                             {
                                 '批量查询多个元器件' if history_item.get('type') == 'batch' 
-                                else f"找到 {len(history_item.get('recommendations', []))} 种替代方案"
+                                else ''
                             }
                         </div>
                     </div>
@@ -1318,29 +1271,30 @@ def render_ui(get_alternative_parts_func):
         history_item = st.session_state.selected_history
         
         if history_item.get('type') == 'batch':
-            # 显示批量查询结果
             st.subheader(f"历史批量查询结果: {history_item['part_number']}")
             
             batch_results = history_item.get('batch_results', {})
             
-            # 直接显示详细的替代方案结果，不使用摘要表格
-            st.subheader("批量查询结果")
+            st.subheader("批量查询结果（仅显示有停产风险的替代方案）")
             
-            # 直接显示详细替代方案，不使用expander
             for mpn, result_info in batch_results.items():
+                if mpn.startswith("__"):
+                    continue
+                    
                 alts = result_info.get('alternatives', [])
                 name = result_info.get('name', '')
+                warning_level = result_info.get('warning_level', '未知')
                 
-                # 显示每个元器件的标题
-                st.markdown(f"### {mpn} ({name})")
-                
-                # 使用与单个查询相同的display_search_results函数来显示结果
-                if alts:
-                    display_search_results(mpn, alts)
-                else:
-                    st.info("未找到替代方案")
-                
-                st.markdown("---")
+                # 历史记录中也只显示有风险的替代方案
+                if warning_level in ["红色", "黄色"]:
+                    st.markdown(f"### {mpn} ({name})")
+                    
+                    if alts:
+                        display_search_results(mpn, alts)
+                    else:
+                        st.info("未找到替代方案")
+                    
+                    st.markdown("---")
         else:
             # 单个查询结果显示
             st.subheader(f"历史查询结果: {history_item['part_number']}")
