@@ -1231,7 +1231,7 @@ def render_ui(get_alternative_parts_func):
             st.info("暂无历史查询记录")
         else:
             for idx, history_item in enumerate(reversed(st.session_state.search_history)):
-                query_type = "批量查询" if history_item.get('type') == 'batch' else "单元器件查询"
+                query_type = "批量查询" if history_item.get('type') == 'batch' else "元器件查询"
                 
                 # 创建一个带样式的容器
                 with st.container():
@@ -1240,12 +1240,6 @@ def render_ui(get_alternative_parts_func):
                         <div style="font-weight: bold;">{history_item['part_number']}</div>
                         <div style="font-size: 0.8em; color: #666;">
                             ({query_type}) {history_item['timestamp']}
-                        </div>
-                        <div style="margin-top: 5px; font-size: 0.9em;">
-                            {
-                                '批量查询多个元器件' if history_item.get('type') == 'batch' 
-                                else ''
-                            }
                         </div>
                     </div>
                     """, unsafe_allow_html=True)
