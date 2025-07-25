@@ -22,8 +22,8 @@
 1. 克隆仓库到本地
 
 ```bash
-git clone https://github.com/jingyuxu183/bom-alternative-tool-v1.0.git
-cd bom-alternative-tool-v1.0
+git clone https://github.com/myeach/bom-alternative-tool-v1.1.git
+cd bom-alternative-tool-v1.1
 ```
 
 2. 安装依赖库
