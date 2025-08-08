@@ -1388,8 +1388,8 @@ def display_search_results(part_number, recommendations):
                 
                 # Pin-to-Pin 兼容性（简化样式，用符号直观展示）
                 pin_to_pin = rec.get('pinToPin', False)
-                pin_symbol = "✅" if pin_to_pin else "❌"
-                st.markdown(f"**兼容：** {pin_symbol} {('Pin兼容' if pin_to_pin else '非Pin兼容')}", unsafe_allow_html=True)
+                pin_symbol = "❌" if pin_to_pin else "✅"
+                st.markdown(f"**兼容：** {pin_symbol} {('非Pin兼容' if pin_to_pin else 'Pin兼容')}", unsafe_allow_html=True)
                 
                 # 国产/进口标签（绿色背景标识国产）
                 type_display = ""
